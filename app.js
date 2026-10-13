@@ -179,7 +179,9 @@
   /* --------------------------------------------------------------- Render --- */
 
   function render() {
-    $$(".nav-tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view || (state.view === "edit" && t.dataset.view === "list") || (state.view === "detail" && t.dataset.view === "list")));
+    $$(".dash-nav-item.nav-tab").forEach((t) => t.classList.toggle("active", t.dataset.view === state.view));
+    const inList = ["list", "edit", "detail"].includes(state.view);
+    $$(".filter-pill").forEach((p) => p.classList.toggle("active", inList && p.dataset.filter === state.filter));
     $$("[data-panel]").forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== state.view));
     if (state.view === "list") renderList();
     if (state.view === "customers") renderCustomers();
@@ -195,9 +197,9 @@
   }
 
   function statusTag(inv) {
-    if (inv.status === "final") return `<span class="tag tag-ok"><i class="ri-shield-check-line"></i> E-Rechnung · EN 16931</span>`;
-    if (inv.status === "cancelled") return `<span class="tag tag-bad"><i class="ri-close-circle-line"></i> Storniert</span>`;
-    return `<span class="tag tag-draft"><i class="ri-draft-line"></i> Entwurf</span>`;
+    if (inv.status === "final") return `<span class="tag tag-ok"><i class="fa-solid fa-shield-halved"></i> E-Rechnung · EN 16931</span>`;
+    if (inv.status === "cancelled") return `<span class="tag tag-bad"><i class="fa-solid fa-circle-xmark"></i> Storniert</span>`;
+    return `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf</span>`;
   }
 
   function renderList() {
@@ -205,7 +207,6 @@
     const counts = { all: state.invoices.length, draft: 0, final: 0, cancelled: 0 };
     state.invoices.forEach((i) => counts[i.status]++);
     $$(".filter-pill").forEach((p) => {
-      p.classList.toggle("active", p.dataset.filter === state.filter);
       p.querySelector(".count").textContent = counts[p.dataset.filter] || 0;
     });
     const body = $("#invoice-rows");
@@ -222,8 +223,8 @@
         <td class="num">${esc(money(i.gross_cents))}</td>
         <td>${statusTag(i)}</td>
         <td class="row-actions">
-          ${i.status !== "draft" ? `<button class="icon-btn" data-act="pdf" title="PDF (Factur-X)"><i class="ri-file-pdf-2-line"></i></button>` : ""}
-          <button class="icon-btn" data-act="copy" title="Als Vorlage kopieren"><i class="ri-file-copy-line"></i></button>
+          ${i.status !== "draft" ? `<button class="icon-btn" data-act="pdf" title="PDF (Factur-X)"><i class="fa-solid fa-file-pdf"></i></button>` : ""}
+          <button class="icon-btn" data-act="copy" title="Als Vorlage kopieren"><i class="fa-solid fa-copy"></i></button>
         </td>
       </tr>`).join("");
   }
@@ -302,15 +303,15 @@
     const countryOpts = Object.entries(window.RootsInvoicePdf.COUNTRIES).map(([k, n]) => [k, `${n[0]} (${k})`]);
     if (inv.buyer.country && !window.RootsInvoicePdf.COUNTRIES[inv.buyer.country]) countryOpts.push([inv.buyer.country, inv.buyer.country]);
     $("#editor").innerHTML = `
-      <div class="editor-head">
-        <button class="btn-ghost" data-act="back"><i class="ri-arrow-left-line"></i> Rechnungen</button>
+      <div class="page-head">
+        <button class="btn-ghost" data-act="back"><i class="fa-solid fa-arrow-left"></i> Rechnungen</button>
         <h2>${inv.id ? "Rechnung " + esc(inv.number) : "Neue Rechnung"}</h2>
         <span id="edit-state"></span>
       </div>
       <div class="editor-grid">
         <div class="editor-form">
           <section class="card">
-            <h3>Rechnung</h3>
+            <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
               ${input("number", "Rechnungsnummer", { mono: true })}
               ${input("tax_case", "Steuerfall", { options: tcOpts })}
@@ -329,10 +330,10 @@
 
           <section class="card">
             <div class="card-head">
-              <h3>Kunde</h3>
+              <h3><i class="fa-solid fa-building"></i> Kunde</h3>
               <div class="card-actions">
                 <select id="pick-customer"><option value="">Aus Kundenliste</option>${state.customers.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}</select>
-                <button class="btn-ghost sm" data-act="save-customer"><i class="ri-user-add-line"></i> Als Kunde speichern</button>
+                <button class="btn-ghost sm" data-act="save-customer"><i class="fa-solid fa-user-plus"></i> Als Kunde speichern</button>
               </div>
             </div>
             <div class="fields">
@@ -348,21 +349,21 @@
           </section>
 
           <section class="card">
-            <div class="card-head"><h3>Positionen</h3><button class="btn-ghost sm" data-act="add-line"><i class="ri-add-line"></i> Position</button></div>
+            <div class="card-head"><h3><i class="fa-solid fa-list"></i> Positionen</h3><button class="btn-ghost sm" data-act="add-line"><i class="fa-solid fa-plus"></i> Position</button></div>
             <div class="lines">
               ${inv.lines.map((l, i) => `
                 <div class="line-row">
                   <input data-path="lines.${i}.label" value="${esc(l.label)}" placeholder="Bezeichnung">
                   <input data-path="lines.${i}.detail" value="${esc(l.detail || "")}" placeholder="Zusatz">
                   <input data-path="lines.${i}.amount" value="${esc(l.amount)}" placeholder="0,00" class="num">
-                  <button class="icon-btn" data-act="del-line" data-i="${i}" title="Entfernen"><i class="ri-delete-bin-line"></i></button>
+                  <button class="icon-btn" data-act="del-line" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`).join("")}
             </div>
             <div class="totals" id="totals"></div>
           </section>
 
           <section class="card">
-            <div class="card-head"><h3>Anlage</h3><button class="btn-ghost sm" data-act="add-annex-row"><i class="ri-add-line"></i> Zeile</button></div>
+            <div class="card-head"><h3><i class="fa-solid fa-paperclip"></i> Anlage</h3><button class="btn-ghost sm" data-act="add-annex-row"><i class="fa-solid fa-plus"></i> Zeile</button></div>
             <div class="fields">
               ${input("annex.title", "Titel", { wide: true })}
               ${input("annex.text", "Text", { wide: true, area: true, rows: 5 })}
@@ -373,7 +374,7 @@
                   <input data-path="annex.rows.${i}.label" value="${esc(r.label)}" placeholder="Bezeichnung">
                   <input data-path="annex.rows.${i}.amount" value="${esc(r.amount || "")}" placeholder="Betrag" class="num">
                   <label class="chk"><input type="checkbox" data-path="annex.rows.${i}.bold" ${r.bold ? "checked" : ""}> fett</label>
-                  <button class="icon-btn" data-act="del-annex-row" data-i="${i}" title="Entfernen"><i class="ri-delete-bin-line"></i></button>
+                  <button class="icon-btn" data-act="del-annex-row" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`).join("")}
             </div>
           </section>
@@ -381,7 +382,7 @@
 
         <aside class="editor-side">
           <section class="card sticky">
-            <h3>E-Rechnung</h3>
+            <h3><i class="fa-solid fa-shield-halved"></i> E-Rechnung</h3>
             <div class="std-tags">
               <span class="tag tag-std">EN 16931</span>
               <span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span>
@@ -390,11 +391,11 @@
             <ol class="checks" id="checks"></ol>
             <ul class="issues" id="issues"></ul>
             <div class="side-actions">
-              <button class="btn-secondary" data-act="save"><i class="ri-save-line"></i> Entwurf speichern</button>
-              <button class="btn-secondary" data-act="preview"><i class="ri-eye-line"></i> Entwurf ansehen</button>
-              <button class="btn-secondary" data-act="check"><i class="ri-shield-check-line"></i> Prüfen</button>
-              <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="ri-lock-line"></i> Endgültig erstellen</button>
-              ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft"><i class="ri-delete-bin-line"></i> Entwurf löschen</button>` : ""}
+              <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Entwurf speichern</button>
+              <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-eye"></i> Entwurf ansehen</button>
+              <button class="btn-secondary" data-act="check"><i class="fa-solid fa-shield-halved"></i> Prüfen</button>
+              <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-lock"></i> Endgültig erstellen</button>
+              ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft"><i class="fa-solid fa-trash-can"></i> Entwurf löschen</button>` : ""}
             </div>
           </section>
         </aside>
@@ -418,7 +419,7 @@
     const check = state.check && state.check.fingerprint === fp ? state.check : null;
     const errors = issues.filter((m) => m.level === "error");
 
-    const step = (ok, label, detail) => `<li class="${ok === true ? "ok" : ok === false ? "bad" : "open"}"><i class="${ok === true ? "ri-checkbox-circle-fill" : ok === false ? "ri-close-circle-fill" : "ri-checkbox-blank-circle-line"}"></i><span>${esc(label)}</span>${detail ? `<em>${esc(detail)}</em>` : ""}</li>`;
+    const step = (ok, label, detail) => `<li class="${ok === true ? "ok" : ok === false ? "bad" : "open"}"><i class="${ok === true ? "fa-solid fa-circle-check" : ok === false ? "fa-solid fa-circle-xmark" : "fa-regular fa-circle"}"></i><span>${esc(label)}</span>${detail ? `<em>${esc(detail)}</em>` : ""}</li>`;
     $("#checks").innerHTML =
       step(errors.length ? false : true, "Pflichtangaben § 14 UStG", errors.length ? `${errors.length} offen` : "") +
       step(check ? check.schematron.passed : null, "Schematron EN 16931", check ? (check.schematron.passed ? "" : `${check.schematron.errors.length} Verstöße`) : "") +
@@ -434,8 +435,8 @@
     const ready = !!check && check.passed && !errors.length;
     $("#btn-finalize").disabled = !ready || state.busy;
     $("#edit-state").innerHTML = ready
-      ? `<span class="tag tag-ok"><i class="ri-shield-check-line"></i> Geprüft · bereit</span>`
-      : `<span class="tag tag-draft"><i class="ri-draft-line"></i> Entwurf · nicht versendbar</span>`;
+      ? `<span class="tag tag-ok"><i class="fa-solid fa-shield-halved"></i> Geprüft · bereit</span>`
+      : `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf · nicht versendbar</span>`;
 
     $$("[data-path]").forEach((el) => {
       const p = el.dataset.path;
@@ -602,10 +603,10 @@
     const v = d.validation || {};
     const t = { net: d.net_cents, tax: d.tax_cents, gross: d.gross_cents };
     const row = (k, val) => `<div class="kv"><span>${esc(k)}</span><b>${val}</b></div>`;
-    const ok = (s) => (s === "passed" ? `<span class="tag tag-ok sm"><i class="ri-check-line"></i> bestanden</span>` : `<span class="tag tag-bad sm">${esc(s || "offen")}</span>`);
+    const ok = (s) => (s === "passed" ? `<span class="tag tag-ok sm"><i class="fa-solid fa-check"></i> bestanden</span>` : `<span class="tag tag-bad sm">${esc(s || "offen")}</span>`);
     $("#detail").innerHTML = `
-      <div class="editor-head">
-        <button class="btn-ghost" data-act="back"><i class="ri-arrow-left-line"></i> Rechnungen</button>
+      <div class="page-head">
+        <button class="btn-ghost" data-act="back"><i class="fa-solid fa-arrow-left"></i> Rechnungen</button>
         <h2>Rechnung ${esc(d.number)}</h2>
         ${statusTag(d)}
       </div>
@@ -625,7 +626,7 @@
             ${d.status === "cancelled" ? row("Storniert", `${esc(fmtDate(d.cancelled_at))} · ${esc(d.cancel_reason || "")}`) : ""}
           </section>
           <section class="card">
-            <h3>Prüfprotokoll</h3>
+            <h3><i class="fa-solid fa-clipboard-check"></i> Prüfprotokoll</h3>
             ${row("Pflichtangaben", ok(v.precheck))}
             ${row(`Schematron (${esc(v.schematron_version || "EN 16931")})`, ok(v.schematron))}
             ${row("XSD Factur-X EN 16931", ok(v.xsd))}
@@ -638,18 +639,18 @@
         </div>
         <aside class="editor-side">
           <section class="card sticky">
-            <h3>E-Rechnung</h3>
+            <h3><i class="fa-solid fa-shield-halved"></i> E-Rechnung</h3>
             <div class="std-tags">
               <span class="tag tag-std">EN 16931</span>
               <span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span>
               <span class="tag tag-std">PDF/A-3</span>
             </div>
             <div class="side-actions">
-              <button class="btn-primary" data-act="dl-pdf"><i class="ri-file-pdf-2-line"></i> PDF mit E-Rechnung</button>
-              <button class="btn-secondary" data-act="dl-xml"><i class="ri-code-s-slash-line"></i> XML (CII)</button>
-              <button class="btn-secondary" data-act="validator"><i class="ri-external-link-line"></i> Externer Validator BW</button>
-              <button class="btn-secondary" data-act="copy-detail"><i class="ri-file-copy-line"></i> Als Vorlage kopieren</button>
-              ${d.status === "final" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="ri-close-circle-line"></i> Stornieren</button>` : ""}
+              <button class="btn-primary" data-act="dl-pdf"><i class="fa-solid fa-file-pdf"></i> PDF mit E-Rechnung</button>
+              <button class="btn-secondary" data-act="dl-xml"><i class="fa-solid fa-code"></i> XML (CII)</button>
+              <button class="btn-secondary" data-act="validator"><i class="fa-solid fa-arrow-up-right-from-square"></i> Externer Validator BW</button>
+              <button class="btn-secondary" data-act="copy-detail"><i class="fa-solid fa-copy"></i> Als Vorlage kopieren</button>
+              ${d.status === "final" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="fa-solid fa-circle-xmark"></i> Stornieren</button>` : ""}
             </div>
           </section>
         </aside>
@@ -694,8 +695,8 @@
             <td>${esc(E.TAX_CASES[d.tax_case]?.label || "")}</td>
             <td>${esc(d.email || "")}</td>
             <td class="row-actions">
-              <button class="icon-btn" data-act="new-for" title="Neue Rechnung"><i class="ri-add-line"></i></button>
-              <button class="icon-btn" data-act="edit-customer" title="Bearbeiten"><i class="ri-pencil-line"></i></button>
+              <button class="icon-btn" data-act="new-for" title="Neue Rechnung"><i class="fa-solid fa-plus"></i></button>
+              <button class="icon-btn" data-act="edit-customer" title="Bearbeiten"><i class="fa-solid fa-pen"></i></button>
             </td>
           </tr>`;
         }).join("")
@@ -750,15 +751,15 @@
     const seller = s.seller || {};
     $("#settings-form").innerHTML = `
       <section class="card">
-        <h3>Rechnungssteller</h3>
+        <h3><i class="fa-solid fa-landmark"></i> Rechnungssteller</h3>
         <div class="fields">
           ${SELLER_FIELDS.map(([k, label]) => `<label class="field ${k === "name" ? "wide" : ""}"><span class="flabel">${esc(label)}</span><input name="seller.${k}" value="${esc(seller[k] || "")}" class="${["vat_id", "iban", "bic", "tax_number"].includes(k) ? "mono" : ""} ${k === "vat_id" && !E.vatOk(seller.vat_id) ? "invalid" : ""}"></label>`).join("")}
         </div>
-        ${!E.vatOk(seller.vat_id) ? `<p class="warn-line"><i class="ri-error-warning-line"></i> USt-IdNr. fehlt · Reverse-Charge-Rechnungen sind gesperrt (§ 14a UStG)</p>` : ""}
-        ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="ri-error-warning-line"></i> IBAN-Prüfziffer falsch</p>` : ""}
+        ${!E.vatOk(seller.vat_id) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> USt-IdNr. fehlt · Reverse-Charge-Rechnungen sind gesperrt (§ 14a UStG)</p>` : ""}
+        ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> IBAN-Prüfziffer falsch</p>` : ""}
       </section>
       <section class="card">
-        <h3>Nummernkreis</h3>
+        <h3><i class="fa-solid fa-hashtag"></i> Nummernkreis</h3>
         <div class="fields">
           <label class="field"><span class="flabel">Präfix</span><input name="number_prefix" value="${esc(s.number_prefix || "")}" class="mono"></label>
           <label class="field"><span class="flabel">Letzte Nummer</span><input name="number_last" type="number" value="${esc(s.number_last || 0)}" class="mono"></label>
@@ -766,7 +767,7 @@
           <label class="field"><span class="flabel">Nächste Nummer</span><input value="${esc(nextNumber())}" class="mono" disabled></label>
         </div>
       </section>
-      <div class="form-actions"><button class="btn-primary" type="submit"><i class="ri-save-line"></i> Stammdaten speichern</button></div>`;
+      <div class="form-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Stammdaten speichern</button></div>`;
     renderTemplates();
   }
 
@@ -776,7 +777,7 @@
     const tcOpts = Object.entries(E.TAX_CASES).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join("");
     if (!t) {
       $("#tpl-settings").innerHTML = `
-        <div class="card-head"><h3>Vorlagen</h3><button class="btn-ghost sm" data-act="tpl-new"><i class="ri-add-line"></i> Vorlage</button></div>
+        <div class="card-head"><h3><i class="fa-solid fa-layer-group"></i> Vorlagen</h3><button class="btn-ghost sm" data-act="tpl-new"><i class="fa-solid fa-plus"></i> Vorlage</button></div>
         <div class="tpl-grid">${state.templates.map((x) => `
           <button class="tpl-card" data-act="tpl-edit" data-id="${esc(x.id)}">
             <span class="tpl-name">${esc(x.name)}</span>
@@ -786,7 +787,7 @@
     }
     const d = t.data;
     $("#tpl-settings").innerHTML = `
-      <div class="card-head"><h3>Vorlage bearbeiten</h3></div>
+      <div class="card-head"><h3><i class="fa-solid fa-layer-group"></i> Vorlage bearbeiten</h3></div>
       <div class="fields" id="tpl-form">
         <label class="field wide"><span class="flabel">Name</span><input data-tpl="name" value="${esc(t.name)}"></label>
         <label class="field"><span class="flabel">Kurzinfo</span><input data-tpl="data.hint" value="${esc(d.hint || "")}"></label>
@@ -798,17 +799,17 @@
         <label class="field wide"><span class="flabel">Anlage · Text</span><textarea rows="3" data-tpl="data.annex.text">${esc(d.annex?.text || "")}</textarea></label>
         <label class="field wide"><span class="flabel">Hinweis im XML</span><input data-tpl="data.note" value="${esc(d.note || "")}"></label>
       </div>
-      <div class="card-head" style="margin-top:16px"><h3>Standardpositionen</h3><button class="btn-ghost sm" data-act="tpl-add-line"><i class="ri-add-line"></i> Position</button></div>
+      <div class="card-head" style="margin-top:16px"><h3><i class="fa-solid fa-list"></i> Standardpositionen</h3><button class="btn-ghost sm" data-act="tpl-add-line"><i class="fa-solid fa-plus"></i> Position</button></div>
       <div class="lines">${(d.lines || []).map((l, i) => `
         <div class="line-row tpl-line">
           <input data-tpl-line="${i}.label" value="${esc(l.label)}" placeholder="Bezeichnung">
           <input data-tpl-line="${i}.detail" value="${esc(l.detail || "")}" placeholder="Zusatz">
-          <button class="icon-btn" data-act="tpl-del-line" data-i="${i}" title="Entfernen"><i class="ri-delete-bin-line"></i></button>
+          <button class="icon-btn" data-act="tpl-del-line" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
         </div>`).join("")}</div>
       <div class="modal-actions">
         ${t.id ? `<button class="btn-danger-ghost" data-act="tpl-delete" style="margin-right:auto">Löschen</button>` : ""}
         <button class="btn-secondary" data-act="tpl-cancel">Abbrechen</button>
-        <button class="btn-primary" data-act="tpl-save"><i class="ri-save-line"></i> Vorlage speichern</button>
+        <button class="btn-primary" data-act="tpl-save"><i class="fa-solid fa-floppy-disk"></i> Vorlage speichern</button>
       </div>`;
     $('[data-tpl="data.lang"]').value = d.lang || "de";
     $('[data-tpl="data.tax_case"]').value = d.tax_case || "S19";
@@ -889,7 +890,12 @@
         return render();
       }
       const pill = e.target.closest(".filter-pill");
-      if (pill) { state.filter = pill.dataset.filter; return renderList(); }
+      if (pill) {
+        if (state.view === "edit" && !(await leaveEditor())) return;
+        state.filter = pill.dataset.filter;
+        state.view = "list"; state.edit = null;
+        return render();
+      }
 
       const tpl = e.target.closest("#tpl-list .tpl-card");
       if (tpl) {
