@@ -771,6 +771,7 @@
   }
 
   function renderTemplates() {
+    if (!$("#tpl-settings")) return;
     const t = state.tplEdit;
     const tcOpts = Object.entries(E.TAX_CASES).map(([k, x]) => `<option value="${k}">${esc(x.label)}</option>`).join("");
     if (!t) {
