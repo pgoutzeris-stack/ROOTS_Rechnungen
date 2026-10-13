@@ -241,8 +241,8 @@
       id: null,
       number: nextNumber(),
       template: row.id || null,
-      lang: c.lang || tpl.lang,
-      tax_case: c.tax_case || tpl.tax_case,
+      lang: tpl.lang,
+      tax_case: tpl.tax_case,
       issue_date: issue,
       due_date: addDays(issue, Number(tpl.due_days) || 30),
       period_start: ps,
@@ -270,12 +270,18 @@
     const country = window.RootsInvoicePdf.countryName(d.country, "de") || d.country || "";
     return [
       [d.city, country].filter(Boolean).join(" · "),
-      [E.TAX_CASES[d.tax_case]?.label, d.lang === "en" ? "English" : "Deutsch"].filter(Boolean).join(" · "),
+      customerTemplate(c)?.name || "",
       d.vat_id ? `<span class="mono">${esc(d.vat_id)}</span>` : "",
     ].filter(Boolean).map((x) => `<span class="cust-spec">${x.startsWith("<span") ? x : esc(x)}</span>`).join("");
   }
 
   const newFlow = { customer: null };
+
+  /** Hinterlegte Vorlage des Kunden, sonst die erste mit passendem Steuerfall. */
+  function customerTemplate(c) {
+    const d = c?.data || {};
+    return state.templates.find((t) => t.id === d.template_id) || state.templates.find((t) => t.data?.tax_case === d.tax_case) || null;
+  }
 
   function openNew() {
     newFlow.customer = undefined;
@@ -314,7 +320,7 @@
         ${state.templates.map((t) => `
           <button class="tpl-card" data-tplid="${esc(t.id)}">
             <span><span class="tpl-name">${esc(t.name)}</span><span class="tpl-meta">${esc(E.TAX_CASES[t.data?.tax_case]?.label || "")} · ${t.data?.lang === "en" ? "English" : "Deutsch"} · ${esc(t.data?.due_days ?? 30)} Tage</span></span>
-            ${taxCase && t.data?.tax_case === taxCase ? `<span class="tag tag-std">Passt zum Kunden</span>` : ""}
+            ${taxCase && t.data?.tax_case === taxCase ? `<span class="tag tag-std">Passt zum Steuerfall</span>` : ""}
           </button>`).join("") || `<p class="cell-sub">Keine Vorlagen</p>`}
       </div>`;
   }
@@ -776,7 +782,7 @@
           return `<tr data-cid="${esc(c.id)}">
             <td><div class="cell-with-logo">${logoHtml(c, "cust-logo xs")}<div><div class="cell-main">${esc(c.name)}</div><div class="cell-sub">${esc([d.street, `${d.zip || ""} ${d.city || ""}`.trim(), d.country].filter(Boolean).join(", "))}</div></div></div></td>
             <td class="mono">${esc(d.vat_id || "")}</td>
-            <td>${esc(E.TAX_CASES[d.tax_case]?.label || "")}</td>
+            <td>${esc(customerTemplate(c)?.name || "")}</td>
             <td>${esc(d.email || "")}</td>
             <td class="row-actions">
               <button class="icon-btn" data-act="new-for" title="Neue Rechnung"><i class="fa-solid fa-plus"></i></button>
@@ -800,8 +806,7 @@
         ${f("city", "Ort", d.city)}
         ${f("country", "Land (ISO)", d.country || "DE", 'maxlength="2"')}
         ${f("vat_id", "USt-IdNr.", d.vat_id)}
-        <label class="field"><span class="flabel">Steuerfall</span><select name="tax_case">${Object.entries(E.TAX_CASES).map(([k, t]) => `<option value="${k}" ${d.tax_case === k ? "selected" : ""}>${esc(t.label)}</option>`).join("")}</select></label>
-        <label class="field"><span class="flabel">Sprache</span><select name="lang"><option value="de" ${d.lang !== "en" ? "selected" : ""}>Deutsch</option><option value="en" ${d.lang === "en" ? "selected" : ""}>English</option></select></label>
+        <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
         ${f("buyer_reference", "Käuferreferenz", d.buyer_reference)}
@@ -833,6 +838,9 @@
     const { id, name, ...data } = fd;
     data.country = String(data.country || "").toUpperCase();
     data.vat_id = String(data.vat_id || "").replace(/\s+/g, "").toUpperCase();
+    const tpl = state.templates.find((t) => t.id === data.template_id);
+    data.tax_case = tpl?.data?.tax_case || "";
+    data.lang = tpl?.data?.lang || "de";
     await api("customer_save", { id: id || null, name, data });
     $("#cust-dialog").classList.remove("open");
     state.customers = (await api("customers")).customers || [];
@@ -1003,6 +1011,12 @@
       const pick = e.target.closest("[data-pick-customer]");
       if (pick) {
         newFlow.customer = state.customers.find((c) => c.id === pick.dataset.pickCustomer) || null;
+        const tplOfCustomer = customerTemplate(newFlow.customer);
+        if (newFlow.customer && tplOfCustomer) {
+          $("#tpl-dialog").classList.remove("open");
+          if (state.view === "edit" && !(await leaveEditor())) return;
+          return startEditor(blankInvoice(tplOfCustomer.id, newFlow.customer));
+        }
         return renderNewStep();
       }
       const tpl = e.target.closest("#tpl-list .tpl-card");
@@ -1045,7 +1059,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, buyer_reference: state.edit.buyer_reference } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, buyer_reference: state.edit.buyer_reference } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
@@ -1070,7 +1084,7 @@
           }
           case "new-for": {
             const c = state.customers.find((x) => x.id === ctr.dataset.cid);
-            const t = state.templates.find((x) => x.data?.tax_case === c?.data?.tax_case) || state.templates[0];
+            const t = customerTemplate(c) || state.templates[0];
             return startEditor(blankInvoice(t?.id, c));
           }
           case "edit-customer": return customerDialog(state.customers.find((c) => c.id === ctr.dataset.cid));
@@ -1120,8 +1134,8 @@
         const c = state.customers.find((x) => x.id === e.target.value);
         const d = c?.data || {};
         Object.assign(state.edit.buyer, { name: c.name, street: d.street || "", street2: d.street2 || "", zip: d.zip || "", city: d.city || "", country: d.country || "DE", vat_id: d.vat_id || "", email: d.email || "" });
-        if (d.tax_case) state.edit.tax_case = d.tax_case;
-        if (d.lang) state.edit.lang = d.lang;
+        const ct = customerTemplate(c);
+        if (ct) { state.edit.tax_case = ct.data.tax_case; state.edit.lang = ct.data.lang; state.edit.template = ct.id; }
         if (d.contact) state.edit.ordered_by = d.contact;
         if (d.buyer_reference) state.edit.buyer_reference = d.buyer_reference;
         state.edit.customer_id = c.id;

@@ -24,20 +24,20 @@
       en: "plus 19% VAT",
     },
     AE: {
-      label: "EU · Reverse Charge",
+      label: "EU · Reverse Charge (§ 13b UStG)",
       category: "AE",
       rate: 0,
       reasonCode: "VATEX-EU-AE",
-      de: "Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge) gemäß Art. 194, 196 MwStSystRL.",
-      en: "Reverse Charge - According to Article 194, 196 of Council Directive 2006/112/EEC, VAT liability rests with the service recipient.",
+      de: "Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge, § 13b UStG, Art. 196 MwStSystRL).",
+      en: "Reverse charge: VAT liability rests with the service recipient (Article 196 Council Directive 2006/112/EC).",
     },
     O: {
-      label: "Drittland · nicht steuerbar",
+      label: "Drittland · im Inland nicht steuerbar (§ 3a Abs. 2 UStG)",
       category: "O",
       rate: null,
       reasonCode: "VATEX-EU-O",
-      de: "Nicht im Inland steuerbare sonstige Leistung gemäß § 3a Abs. 2 UStG. Steuerschuldnerschaft des Leistungsempfängers / Reverse Charge.",
-      en: "Not taxable in Germany according to Section 3a (2) German VAT Act. VAT liability rests with the service recipient.",
+      de: "Im Inland nicht steuerbare sonstige Leistung, Leistungsort beim Leistungsempfänger im Drittland (§ 3a Abs. 2 UStG). Eine etwaige Umsatzsteuer schuldet der Leistungsempfänger nach dem Recht seines Landes.",
+      en: "Not taxable in Germany: place of supply is the recipient's country outside the EU (Section 3a (2) German VAT Act). Any VAT is payable by the recipient under local law.",
     },
   };
 
