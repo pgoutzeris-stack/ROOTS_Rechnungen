@@ -156,7 +156,11 @@ window.RootsUI = (function () {
       canvas.className = "preview-page";
       await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
       if (token !== renderToken) return;
-      canvases.push(canvas);
+      const wrap = document.createElement("div");
+      wrap.className = "preview-page-wrap";
+      wrap.style.width = width + "px";
+      wrap.appendChild(canvas);
+      canvases.push(wrap);
     }
     const scroll = container.scrollTop;
     container.replaceChildren(...canvases);
@@ -199,5 +203,42 @@ window.RootsUI = (function () {
     return /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(s) || /^https:\/\/[^\s"'<>]+$/.test(s) ? s : "";
   }
 
-  return { enhance, close, isoToDe, deToIso, renderPdf, logoFromFile, monogram, safeLogo };
+  /* ------------------------------------------------- Bereich hervorheben --- */
+
+  let zoomTimer = null;
+  /**
+   * Bereich einer Seite kurz aufleuchten lassen und heranzoomen.
+   * region: { page, x, y, w, h } als Anteile der Seite.
+   */
+  function highlight(container, region) {
+    if (!container || !region) return;
+    const wraps = container.querySelectorAll(".preview-page-wrap");
+    const wrap = wraps[region.page];
+    if (!wrap) return;
+    container.querySelectorAll(".pv-hl").forEach((el) => el.remove());
+    const hl = document.createElement("div");
+    hl.className = "pv-hl";
+    hl.style.left = region.x * 100 + "%";
+    hl.style.top = region.y * 100 + "%";
+    hl.style.width = region.w * 100 + "%";
+    hl.style.height = region.h * 100 + "%";
+    wrap.appendChild(hl);
+
+    const cx = Math.max(0, region.x) * 100;
+    const cy = (region.y + region.h / 2) * 100;
+    wraps.forEach((w) => { if (w !== wrap) w.classList.remove("zoomed"); });
+    wrap.style.transformOrigin = `${cx}% ${cy}%`;
+    wrap.classList.add("zoomed");
+    const target = wrap.offsetTop + wrap.offsetHeight * (region.y + region.h / 2) - container.clientHeight / 2;
+    container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(() => {
+      wrap.classList.remove("zoomed");
+      hl.classList.add("fade");
+      setTimeout(() => hl.remove(), 600);
+    }, 1800);
+  }
+
+  return { enhance, highlight, close, isoToDe, deToIso, renderPdf, logoFromFile, monogram, safeLogo };
 })();

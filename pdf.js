@@ -92,6 +92,15 @@
       return page;
     }
 
+    /* Bereiche fuer die Vorschau: Schluessel -> Seite und Rechteck (Anteile der Seite). */
+    const regions = opts.regions || null;
+    const mark = (key, x1, yTop, x2, yBottom, size = 9.5) => {
+      if (!regions) return;
+      const top = H - yTop - size - 4;
+      const bottom = H - yBottom + size * 0.45 + 4;
+      regions[key] = { page: pages.length - 1, x: (x1 - 6) / W, y: top / H, w: (x2 - x1 + 12) / W, h: (bottom - top) / H };
+    };
+
     /* ---------------- Seite 1 */
     let p = newPage();
     const text = (s, x, y, o = {}) => p.drawText(String(s ?? ""), { x, y, size: o.size || 9.5, font: o.bold ? B : R, color: o.color || INK });
@@ -103,28 +112,33 @@
     text(`${seller.name} | ${seller.street} | ${seller.zip} ${seller.city}`, ML, H - 150, { size: 6.8, color: MUTED });
     const b = inv.buyer || {};
     let y = H - 170;
+    const buyerTop = y;
     [b.name, b.street2 ? b.street2 : null, b.street, `${b.zip || ""} ${b.city || ""}`.trim(), countryName(b.country, lang), b.email, b.vat_id && tc.category !== "O" ? `${lang === "en" ? "VAT" : "USt-IdNr."} ${b.vat_id}` : null]
       .filter(Boolean).forEach((line, i) => { text(line, ML, y, { bold: i === 0 }); y -= 13; });
+    mark("buyer", ML, buyerTop, ML + 260, y + 13);
 
-    right(`${seller.city}, ${date(inv.issue_date)}`, W - MR, Math.min(H - 250, y - 6));
+    const dateY = Math.min(H - 250, y - 6);
+    right(`${seller.city}, ${date(inv.issue_date)}`, W - MR, dateY);
+    mark("issue_date", W - MR - 160, dateY, W - MR, dateY);
     const topY = Math.min(H - 300, y - 40);
 
     y = topY;
     text(L.title, ML, y, { size: 15, bold: true });
     y -= 26;
     const meta = [
-      [L.number, inv.number],
-      [L.project, inv.project],
-      [L.period, `${date(inv.period_start)} - ${date(inv.period_end)}`],
-      [L.cost, inv.cost_center],
-      [L.po, inv.po],
-      [L.ref, inv.buyer_reference],
-      [L.contact, inv.ordered_by],
+      [L.number, inv.number, "number"],
+      [L.project, inv.project, "project"],
+      [L.period, `${date(inv.period_start)} - ${date(inv.period_end)}`, "period"],
+      [L.cost, inv.cost_center, "cost_center"],
+      [L.po, inv.po, "po"],
+      [L.ref, inv.buyer_reference, "buyer_reference"],
+      [L.contact, inv.ordered_by, "ordered_by"],
     ].filter((r) => String(r[1] || "").trim());
-    meta.forEach(([k, v]) => {
+    meta.forEach(([k, v, key]) => {
       text(k, ML, y, { color: MUTED });
       const lines = wrap(v, k === L.number ? B : R, 9.5, CW - 120);
       lines.forEach((ln, i) => text(ln, ML + 120, y - i * 12.5, { bold: k === L.number }));
+      mark(key, ML, y, W - MR, y - (lines.length - 1) * 12.5);
       y -= 12.5 * lines.length + 3;
     });
 
@@ -134,10 +148,12 @@
       right(t.lines[i] ? money(t.lines[i]) : "- €", AX, y);
       const lines = wrap(l.label + (l.detail ? ` (${l.detail})` : ""), R, 9.5, CW - 110);
       lines.forEach((ln, j) => text(ln, AX + 16, y - j * 12.5));
+      mark(`lines.${i}`, ML, y, W - MR, y - (lines.length - 1) * 12.5);
       y -= 12.5 * lines.length + 6;
     });
     p.drawLine({ start: { x: ML, y: y + 4 }, end: { x: AX + 200, y: y + 4 }, thickness: 0.5, color: LINE });
     y -= 12;
+    const totalsTop = y;
     if (tc.category === "S") {
       right(money(t.net), AX, y); text(L.net, AX + 16, y); y -= 15;
       right(money(t.tax), AX, y); text(L.tax, AX + 16, y); y -= 15;
@@ -148,8 +164,11 @@
       y -= 10;
     }
 
+    mark("totals", ML, totalsTop, W - MR, y + 22);
     y -= 6;
-    text(`${L.due} ${date(inv.due_date)}.`, ML, y); y -= 20;
+    text(`${L.due} ${date(inv.due_date)}.`, ML, y);
+    mark("due_date", ML, y, ML + 260, y);
+    y -= 20;
     wrap(L.pay, R, 9.5, CW).forEach((ln) => { text(ln, ML, y); y -= 12.5; });
     y -= 3;
     text(seller.name, ML, y, { bold: true }); y -= 12.5;
@@ -164,17 +183,21 @@
       p = newPage();
       y = H - 150;
       text(`${L.annex}: ${a.title || ""}`.trim(), ML, y, { size: 12, bold: true });
+      mark("annex.title", ML, y, W - MR, y, 12);
       y -= 26;
+      const textTop = y;
       wrap(a.text, R, 9.5, CW).forEach((ln) => {
         if (y < 100) { p = newPage(); y = H - 150; }
         text(ln, ML, y); y -= 13;
       });
+      if (String(a.text || "").trim()) mark("annex.text", ML, textTop, W - MR, Math.min(textTop, y + 13));
       if (rows.length) {
         y -= 8;
         rows.forEach((r) => {
           if (y < 100) { p = newPage(); y = H - 150; }
           const bold = !!r.bold;
           text(r.label, ML, y, { bold });
+          mark(`annex.rows.${(a.rows || []).indexOf(r)}`, ML, y, W - MR, y);
           const c = E.toCents(r.amount);
           if (String(r.amount || "").trim()) right(Number.isFinite(c) ? money(c) : String(r.amount), W - MR, y, { bold });
           y -= 6;

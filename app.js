@@ -333,6 +333,7 @@
     state.check = null;
     state.showErrors = false;
     state.view = "edit";
+    resetHistory();
     render();
   }
 
@@ -366,6 +367,9 @@
         <h2>${inv.id ? "Rechnung " + esc(inv.number) : "Neue Rechnung"}</h2>
         <span id="edit-state"></span>
         <div class="head-actions">
+          <span id="save-state" class="save-state"></span>
+          <button class="icon-btn hist-btn" id="btn-undo" data-act="undo" title="Rückgängig (⌘Z)"><i class="fa-solid fa-rotate-left"></i></button>
+          <button class="icon-btn hist-btn" id="btn-redo" data-act="redo" title="Wiederholen (⇧⌘Z)"><i class="fa-solid fa-rotate-right"></i></button>
           ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
           <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-download"></i> Entwurf</button>
           <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
@@ -470,6 +474,92 @@
     return issues;
   }
 
+  /** Feldpfad -> Bereich im PDF. */
+  function regionKey(path) {
+    const p = String(path || "");
+    if (p.startsWith("buyer.")) return "buyer";
+    if (p === "period_start" || p === "period_end") return "period";
+    if (p === "tax_case" || p === "lang") return "totals";
+    let m = /^lines\.(\d+)\./.exec(p);
+    if (m) return `lines.${m[1]}`;
+    m = /^annex\.rows\.(\d+)\./.exec(p);
+    if (m) return `annex.rows.${m[1]}`;
+    return p;
+  }
+  let pendingFocus = null;
+
+  /* ------------------------------------------------ Autospeichern, Verlauf --- */
+
+  const hist = { past: [], future: [], last: null, timer: null };
+  function resetHistory() {
+    hist.past = [];
+    hist.future = [];
+    hist.last = JSON.stringify(state.edit);
+    updateHistoryButtons();
+  }
+  function commitHistory() {
+    clearTimeout(hist.timer);
+    if (!state.edit) return;
+    const cur = JSON.stringify({ ...state.edit, id: undefined });
+    const last = hist.last && JSON.stringify({ ...JSON.parse(hist.last), id: undefined });
+    if (cur !== last) {
+      if (hist.last) hist.past.push(hist.last);
+      if (hist.past.length > 100) hist.past.shift();
+      hist.future = [];
+    }
+    hist.last = JSON.stringify(state.edit);
+    updateHistoryButtons();
+  }
+  function scheduleHistory() {
+    clearTimeout(hist.timer);
+    hist.timer = setTimeout(commitHistory, 600);
+  }
+  function stepHistory(dir) {
+    commitHistory();
+    const from = dir < 0 ? hist.past : hist.future;
+    const to = dir < 0 ? hist.future : hist.past;
+    if (!from.length) return;
+    to.push(hist.last);
+    hist.last = from.pop();
+    const id = state.edit.id;
+    state.edit = JSON.parse(hist.last);
+    state.edit.id = id;
+    renderEditor();
+    updateHistoryButtons();
+    scheduleAutosave();
+  }
+  function updateHistoryButtons() {
+    const u = $("#btn-undo"), r = $("#btn-redo");
+    if (u) u.disabled = !hist.past.length && JSON.stringify(state.edit) === hist.last;
+    if (r) r.disabled = !hist.future.length;
+  }
+
+  let autosaveTimer = null;
+  let saveChain = Promise.resolve();
+  function setSaveState(text, kind = "") {
+    const el = $("#save-state");
+    if (el) { el.textContent = text; el.className = "save-state " + kind; }
+  }
+  function scheduleAutosave() {
+    clearTimeout(autosaveTimer);
+    setSaveState("Ungespeichert");
+    autosaveTimer = setTimeout(autosave, 1200);
+  }
+  function autosave() {
+    if (!state.edit || !String(state.edit.number || "").trim()) return;
+    saveChain = saveChain.then(async () => {
+      if (!state.edit) return;
+      setSaveState("Speichert …");
+      try {
+        await saveDraft(true);
+        setSaveState("Gespeichert · " + new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }), "ok");
+      } catch (e) {
+        setSaveState("Nicht gespeichert: " + e.message, "err");
+      }
+    });
+    return saveChain;
+  }
+
   let previewTimer = null;
   function schedulePreview() {
     clearTimeout(previewTimer);
@@ -477,9 +567,14 @@
       const box = $("#preview-pages");
       if (!box || !state.edit) return;
       try {
-        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false });
+        const regions = {};
+        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, regions });
         const pages = await window.RootsUI.renderPdf(pdf, box);
-        if (pages) $("#preview-info").textContent = pages === 1 ? "1 Seite" : `${pages} Seiten`;
+        if (pages) {
+          state.regions = regions;
+          $("#preview-info").textContent = pages === 1 ? "1 Seite" : `${pages} Seiten`;
+          if (pendingFocus) { window.RootsUI.highlight(box, regions[pendingFocus]); pendingFocus = null; }
+        }
       } catch (e) {
         $("#preview-info").textContent = e.message;
       }
@@ -706,6 +801,7 @@
         state.edit = { ...detail.data, id: detail.id, number: detail.number };
         editorSnapshot = JSON.stringify(normalized(state.edit));
         state.check = null;
+        resetHistory();
       }
       render();
     } catch (e) {
@@ -1049,6 +1145,8 @@
       try {
         switch (act) {
           case "new": return openNew();
+          case "undo": return stepHistory(-1);
+          case "redo": return stepHistory(1);
           case "new-back": newFlow.customer = undefined; return renderNewStep();
           case "pick-logo": return $("#logo-file").click();
           case "drop-logo": state.edit.buyer_logo = ""; return renderEditor();
@@ -1056,8 +1154,8 @@
           case "back":
             if (state.view === "edit" && !(await leaveEditor())) return;
             state.view = "list"; state.edit = null; detail = null; return render();
-          case "add-line": state.edit.lines.push({ label: "", detail: "", amount: "" }); return renderEditor();
-          case "del-line": state.edit.lines.splice(Number(btn.dataset.i), 1); return renderEditor();
+          case "add-line": state.edit.lines.push({ label: "", detail: "", amount: "" }); renderEditor(); commitHistory(); return scheduleAutosave();
+          case "del-line": state.edit.lines.splice(Number(btn.dataset.i), 1); renderEditor(); commitHistory(); return scheduleAutosave();
           case "add-annex-row": (state.edit.annex.rows = state.edit.annex.rows || []).push({ label: "", amount: "", bold: false }); return renderEditor();
           case "del-annex-row": state.edit.annex.rows.splice(Number(btn.dataset.i), 1); return renderEditor();
           case "save": setBusy(true, "Speichern"); try { await saveDraft(); } finally { setBusy(false); } return updateLive();
@@ -1160,6 +1258,9 @@
       const el = e.target.closest("[data-path]");
       if (!el || !state.edit) return;
       setPath(el.dataset.path, el.type === "checkbox" ? el.checked : el.dataset.date ? window.RootsUI.deToIso(el.value) : el.value);
+      pendingFocus = regionKey(el.dataset.path);
+      scheduleHistory();
+      scheduleAutosave();
       updateLive();
     });
     document.addEventListener("change", (e) => {
@@ -1183,11 +1284,30 @@
     $("#settings-form").addEventListener("submit", (e) => { e.preventDefault(); saveSettings(e.target).catch((err) => toast(err.message, "err")); });
   }
 
+  document.addEventListener("focusin", (e) => {
+    const el = e.target.closest?.("[data-path]");
+    if (!el || state.view !== "edit") return;
+    window.RootsUI.highlight($("#preview-pages"), state.regions?.[regionKey(el.dataset.path)]);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (state.view !== "edit" || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+    if (e.target.closest?.("input, textarea")) return;
+    e.preventDefault();
+    stepHistory(e.shiftKey ? 1 : -1);
+  });
+
+  /** Beim Verlassen ausstehende Aenderungen sofort speichern; nur bei Fehler nachfragen. */
   async function leaveEditor() {
     if (!state.edit) return true;
-    const dirty = !state.edit.id || JSON.stringify(normalized(state.edit)) !== editorSnapshot;
-    if (!dirty) return true;
-    return confirmDialog("Änderungen verwerfen?", "", "Verwerfen");
+    const touched = hist.past.length > 0 || JSON.stringify(state.edit) !== hist.last || !!state.edit.id;
+    if (!touched) return true;
+    clearTimeout(autosaveTimer);
+    try {
+      await saveDraft(true);
+      return true;
+    } catch (e) {
+      return confirmDialog("Entwurf nicht gespeichert", e.message, "Trotzdem verlassen");
+    }
   }
   document.addEventListener("DOMContentLoaded", () => {
     wire();

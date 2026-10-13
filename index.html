@@ -22,12 +22,12 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=7"></script>
-<script src="einvoice.js?v=7"></script>
-<script src="pdf.js?v=7"></script>
-<script src="schematron.js?v=7"></script>
-<script src="facturx.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="ui.js?v=8"></script>
+<script src="einvoice.js?v=8"></script>
+<script src="pdf.js?v=8"></script>
+<script src="schematron.js?v=8"></script>
+<script src="facturx.js?v=8"></script>
+<script src="app.js?v=8"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -121,7 +121,7 @@ button:disabled{cursor:not-allowed}
 .card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:20px;flex-wrap:wrap}
 .card-head h3{margin:0}
 .card-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.page-head{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+.page-head{display:flex;align-items:center;gap:14px;margin:-24px -24px 20px;padding:14px 24px;flex-wrap:wrap;position:sticky;top:0;z-index:20;background:var(--app-bg)}
 .page-head h2{font-size:1.35rem;font-weight:700;margin:0}
 
 /* Tabelle */
@@ -222,6 +222,23 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .toast.out{opacity:0;transform:translateY(6px)}
 @keyframes toastIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
 
+/* Vorschau: Hervorhebung, Zoom */
+.preview-page-wrap{position:relative;transition:transform .45s cubic-bezier(.2,.8,.2,1);transform:scale(1);flex-shrink:0}
+.preview-page-wrap.zoomed{transform:scale(1.35);z-index:2}
+.preview-page-wrap canvas{display:block}
+.preview-pages{overflow:auto}
+.pv-hl{position:absolute;border-radius:6px;background:rgba(32,110,251,.10);box-shadow:0 0 0 1px rgba(32,110,251,.35);pointer-events:none;overflow:hidden;animation:pvIn .25s ease;transition:opacity .5s}
+.pv-hl::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.75) 50%,transparent 80%);transform:translateX(-100%);animation:pvShimmer 1.1s ease .1s 1}
+.pv-hl.fade{opacity:0}
+@keyframes pvShimmer{to{transform:translateX(100%)}}
+@keyframes pvIn{from{opacity:0}to{opacity:1}}
+.save-state{font-size:.78rem;color:var(--muted);margin-right:4px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.save-state.ok{color:var(--ok-text)}
+.save-state.err{color:var(--bad-text)}
+.hist-btn{border:1px solid var(--line);border-radius:999px;width:38px;height:38px}
+.hist-btn:disabled{opacity:.4;background:transparent;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){.preview-page-wrap,.pv-hl{transition:none;animation:none}.pv-hl::after{display:none}}
+
 /* Ergebnis-Pop-up */
 .result-box{width:min(520px,100%);text-align:center;padding:2rem 1.75rem 1.5rem}
 .result-icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin:0 auto 1rem;background:var(--brand-light);color:var(--brand)}
@@ -292,11 +309,12 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .check-card .checks{flex-direction:row;flex-wrap:wrap;gap:8px 18px;margin:0}
 .check-card .checks li em{margin-left:4px}
 .check-card .issues{margin:14px 0 0}
-.preview-pane{position:sticky;top:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;height:calc(100dvh - 64px - 48px - 64px);min-height:420px;overflow:hidden}
+.preview-pane{position:sticky;top:76px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;height:calc(100dvh - 64px - 48px - 64px);min-height:420px;overflow:hidden}
 .preview-head{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);font-size:.85rem;font-weight:600;color:var(--muted)}
 .preview-head i{color:var(--brand);margin-right:6px}
 .preview-pages{flex:1;overflow:auto;padding:18px;background:var(--surface);display:flex;flex-direction:column;align-items:center;gap:16px}
 .preview-page{box-shadow:0 4px 16px rgba(15,23,42,.12);background:#fff;max-width:100%;height:auto}
+.preview-pages{align-items:center}
 
 @media (max-width:1100px){.editor-grid,.editor-split{grid-template-columns:1fr}.sticky,.preview-pane{position:static}.preview-pane{height:70vh}}
 @media (max-width:760px){
