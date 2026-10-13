@@ -260,15 +260,63 @@
     };
   }
 
+  function logoHtml(c, cls = "cust-logo") {
+    const src = window.RootsUI.safeLogo(c?.data?.logo);
+    return `<div class="${cls}">${src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : `<span class="monogram">${esc(window.RootsUI.monogram(c?.name))}</span>`}</div>`;
+  }
+
+  function customerSpecs(c) {
+    const d = c.data || {};
+    const country = window.RootsInvoicePdf.countryName(d.country, "de") || d.country || "";
+    return [
+      [d.city, country].filter(Boolean).join(" · "),
+      [E.TAX_CASES[d.tax_case]?.label, d.lang === "en" ? "English" : "Deutsch"].filter(Boolean).join(" · "),
+      d.vat_id ? `<span class="mono">${esc(d.vat_id)}</span>` : "",
+    ].filter(Boolean).map((x) => `<span class="cust-spec">${x.startsWith("<span") ? x : esc(x)}</span>`).join("");
+  }
+
+  const newFlow = { customer: null };
+
   function openNew() {
-    const dlg = $("#tpl-dialog");
-    $("#tpl-list").innerHTML = state.templates.map((t) => `
-      <button class="tpl-card" data-tplid="${esc(t.id)}">
-        <span class="tpl-name">${esc(t.name)}</span>
-        <span class="tpl-meta">${esc(t.data?.hint || "")}</span>
-      </button>`).join("") || `<p class="cell-sub">Keine Vorlagen</p>`;
-    $("#tpl-customer").innerHTML = `<option value="">Kunde wählen</option>` + state.customers.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
-    dlg.classList.add("open");
+    newFlow.customer = undefined;
+    renderNewStep();
+    $("#tpl-dialog").classList.add("open");
+  }
+
+  function renderNewStep() {
+    const box = $("#new-step");
+    if (newFlow.customer === undefined) {
+      box.innerHTML = `
+        <div class="modal-headline"><h2>Neue Rechnung</h2><button class="icon-btn" data-act="close-dialog" title="Schließen"><i class="fa-solid fa-xmark"></i></button></div>
+        <div class="cust-grid" style="grid-template-columns:repeat(${Math.min(state.customers.length + 1, 5)},minmax(0,1fr))">
+          ${state.customers.map((c) => `
+            <button class="cust-tile" data-pick-customer="${esc(c.id)}">
+              ${logoHtml(c)}
+              <span class="cust-name">${esc(c.name)}</span>
+              ${customerSpecs(c)}
+            </button>`).join("")}
+          <button class="cust-tile cust-new" data-pick-customer="">
+            <div class="cust-logo"><i class="fa-solid fa-plus"></i></div>
+            <span class="cust-name">Neuer Kunde</span>
+          </button>
+        </div>`;
+      return;
+    }
+    const c = newFlow.customer;
+    const taxCase = c?.data?.tax_case;
+    box.innerHTML = `
+      <div class="modal-headline">
+        <button class="btn-ghost sm" data-act="new-back"><i class="fa-solid fa-arrow-left"></i> Kunden</button>
+        <h2>${c ? esc(c.name) : "Neuer Kunde"}</h2>
+        <button class="icon-btn" data-act="close-dialog" title="Schließen"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="tpl-grid" id="tpl-list">
+        ${state.templates.map((t) => `
+          <button class="tpl-card" data-tplid="${esc(t.id)}">
+            <span><span class="tpl-name">${esc(t.name)}</span><span class="tpl-meta">${esc(E.TAX_CASES[t.data?.tax_case]?.label || "")} · ${t.data?.lang === "en" ? "English" : "Deutsch"} · ${esc(t.data?.due_days ?? 30)} Tage</span></span>
+            ${taxCase && t.data?.tax_case === taxCase ? `<span class="tag tag-std">Passt zum Kunden</span>` : ""}
+          </button>`).join("") || `<p class="cell-sub">Keine Vorlagen</p>`}
+      </div>`;
   }
 
   let editorSnapshot = null;
@@ -292,6 +340,9 @@
     if (opts.options) {
       return `<label class="${cls}"><span class="flabel">${esc(label)}</span><select data-path="${path}">${opts.options.map(([k, t]) => `<option value="${esc(k)}" ${String(v) === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`;
     }
+    if (opts.type === "date") {
+      return `<label class="${cls}"><span class="flabel">${esc(label)}</span><input type="text" inputmode="numeric" data-path="${path}" data-date="1" value="${esc(window.RootsUI.isoToDe(v))}" placeholder="TT.MM.JJJJ"></label>`;
+    }
     if (opts.area) return `<label class="${cls}"><span class="flabel">${esc(label)}</span><textarea data-path="${path}" rows="${opts.rows || 4}">${esc(v)}</textarea></label>`;
     return `<label class="${cls}"><span class="flabel">${esc(label)}</span><input type="${type}" data-path="${path}" value="${esc(v)}" ${opts.placeholder ? `placeholder="${esc(opts.placeholder)}"` : ""} ${opts.mono ? 'class="mono"' : ""}></label>`;
   }
@@ -307,9 +358,28 @@
         <button class="btn-ghost" data-act="back"><i class="fa-solid fa-arrow-left"></i> Rechnungen</button>
         <h2>${inv.id ? "Rechnung " + esc(inv.number) : "Neue Rechnung"}</h2>
         <span id="edit-state"></span>
+        <div class="head-actions">
+          ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
+          <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-download"></i> Entwurf</button>
+          <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
+          <button class="btn-secondary" data-act="check"><i class="fa-solid fa-shield-halved"></i> Prüfen</button>
+          <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-lock"></i> Endgültig erstellen</button>
+        </div>
       </div>
-      <div class="editor-grid">
+      <div class="editor-split">
         <div class="editor-form">
+          <section class="card check-card">
+            <div class="card-head">
+              <h3><i class="fa-solid fa-shield-halved"></i> E-Rechnung</h3>
+              <div class="std-tags">
+                <span class="tag tag-std">EN 16931</span>
+                <span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span>
+                <span class="tag tag-std">PDF/A-3</span>
+              </div>
+            </div>
+            <ol class="checks" id="checks"></ol>
+            <ul class="issues" id="issues"></ul>
+          </section>
           <section class="card">
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
@@ -335,6 +405,12 @@
                 <select id="pick-customer"><option value="">Aus Kundenliste</option>${state.customers.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}</select>
                 <button class="btn-ghost sm" data-act="save-customer"><i class="fa-solid fa-user-plus"></i> Als Kunde speichern</button>
               </div>
+            </div>
+            <div class="buyer-head">
+              ${logoHtml({ name: inv.buyer.name, data: { logo: inv.buyer_logo ?? (state.customers.find((c) => c.id === inv.customer_id)?.data?.logo || "") } }, "cust-logo sm")}
+              <button class="btn-ghost sm" data-act="pick-logo"><i class="fa-solid fa-image"></i> Logo</button>
+              ${inv.buyer_logo ? `<button class="btn-ghost sm" data-act="drop-logo"><i class="fa-solid fa-xmark"></i></button>` : ""}
+              <input type="file" id="logo-file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden>
             </div>
             <div class="fields">
               ${input("buyer.name", "Firma", { wide: true })}
@@ -379,34 +455,41 @@
             </div>
           </section>
         </div>
-
-        <aside class="editor-side">
-          <section class="card sticky">
-            <h3><i class="fa-solid fa-shield-halved"></i> E-Rechnung</h3>
-            <div class="std-tags">
-              <span class="tag tag-std">EN 16931</span>
-              <span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span>
-              <span class="tag tag-std">PDF/A-3</span>
-            </div>
-            <ol class="checks" id="checks"></ol>
-            <ul class="issues" id="issues"></ul>
-            <div class="side-actions">
-              <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Entwurf speichern</button>
-              <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-eye"></i> Entwurf ansehen</button>
-              <button class="btn-secondary" data-act="check"><i class="fa-solid fa-shield-halved"></i> Prüfen</button>
-              <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-lock"></i> Endgültig erstellen</button>
-              ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft"><i class="fa-solid fa-trash-can"></i> Entwurf löschen</button>` : ""}
-            </div>
-          </section>
-        </aside>
+        <div class="preview-pane">
+          <div class="preview-head"><span><i class="fa-regular fa-file-pdf"></i> Vorschau</span><span id="preview-info"></span></div>
+          <div class="preview-pages" id="preview-pages"></div>
+        </div>
       </div>`;
+    window.RootsUI.enhance($("#editor"));
+    $("#logo-file").addEventListener("change", async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      try { state.edit.buyer_logo = await window.RootsUI.logoFromFile(f); renderEditor(); } catch (err) { toast(err.message, "err"); }
+    });
     updateLive();
   }
 
-  /** Alles, was sich bei jeder Eingabe aendert: Summen, Vorpruefung, Ampel. */
+  let previewTimer = null;
+  function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      const box = $("#preview-pages");
+      if (!box || !state.edit) return;
+      try {
+        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false });
+        const pages = await window.RootsUI.renderPdf(pdf, box);
+        if (pages) $("#preview-info").textContent = pages === 1 ? "1 Seite" : `${pages} Seiten`;
+      } catch (e) {
+        $("#preview-info").textContent = e.message;
+      }
+    }, 350);
+  }
+
+  /** Alles, was sich bei jeder Eingabe aendert: Summen, Vorpruefung, Ampel, Vorschau. */
   function updateLive() {
     const inv = state.edit;
     if (!inv) return;
+    schedulePreview();
     const t = E.totals(inv);
     const tc = E.TAX_CASES[inv.tax_case];
     $("#totals").innerHTML = tc && tc.category === "S"
@@ -442,6 +525,7 @@
       const p = el.dataset.path;
       const hit = issues.some((m) => m.level === "error" && (m.field === p || (m.field === "period" && (p === "period_start" || p === "period_end"))));
       el.classList.toggle("invalid", hit);
+      el._csFill?.();
     });
   }
 
@@ -690,7 +774,7 @@
       ? state.customers.map((c) => {
           const d = c.data || {};
           return `<tr data-cid="${esc(c.id)}">
-            <td><div class="cell-main">${esc(c.name)}</div><div class="cell-sub">${esc([d.street, `${d.zip || ""} ${d.city || ""}`.trim(), d.country].filter(Boolean).join(", "))}</div></td>
+            <td><div class="cell-with-logo">${logoHtml(c, "cust-logo xs")}<div><div class="cell-main">${esc(c.name)}</div><div class="cell-sub">${esc([d.street, `${d.zip || ""} ${d.city || ""}`.trim(), d.country].filter(Boolean).join(", "))}</div></div></div></td>
             <td class="mono">${esc(d.vat_id || "")}</td>
             <td>${esc(E.TAX_CASES[d.tax_case]?.label || "")}</td>
             <td>${esc(d.email || "")}</td>
@@ -722,6 +806,24 @@
         ${f("contact", "Kontakt", d.contact)}
         ${f("buyer_reference", "Käuferreferenz", d.buyer_reference)}
       </div>`;
+    $("#cust-form").insertAdjacentHTML("afterbegin", `
+      <div class="buyer-head">
+        <div id="cust-logo-prev">${logoHtml(c || { name: "" }, "cust-logo sm")}</div>
+        <input type="hidden" name="logo" value="${esc(window.RootsUI.safeLogo(d.logo))}">
+        <button type="button" class="btn-ghost sm" id="cust-logo-btn"><i class="fa-solid fa-image"></i> Logo</button>
+        <input type="file" id="cust-logo-file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden>
+      </div>`);
+    $("#cust-logo-btn").onclick = () => $("#cust-logo-file").click();
+    $("#cust-logo-file").onchange = async (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      try {
+        const url = await window.RootsUI.logoFromFile(f);
+        $("#cust-form [name=logo]").value = url;
+        $("#cust-logo-prev").innerHTML = logoHtml({ name: $("#cust-form [name=name]").value, data: { logo: url } }, "cust-logo sm");
+      } catch (err) { toast(err.message, "err"); }
+    };
+    window.RootsUI.enhance($("#cust-form"));
     $("#cust-delete").classList.toggle("hidden", !c?.id);
     $("#cust-dialog").classList.add("open");
   }
@@ -762,8 +864,8 @@
         <h3><i class="fa-solid fa-hashtag"></i> Nummernkreis</h3>
         <div class="fields">
           <label class="field"><span class="flabel">Präfix</span><input name="number_prefix" value="${esc(s.number_prefix || "")}" class="mono"></label>
-          <label class="field"><span class="flabel">Letzte Nummer</span><input name="number_last" type="number" value="${esc(s.number_last || 0)}" class="mono"></label>
-          <label class="field"><span class="flabel">Schrittweite</span><input name="number_step" type="number" min="1" value="${esc(s.number_step || 1)}" class="mono"></label>
+          <label class="field"><span class="flabel">Letzte Nummer</span><input name="number_last" inputmode="numeric" value="${esc(s.number_last || 0)}" class="mono"></label>
+          <label class="field"><span class="flabel">Schrittweite</span><input name="number_step" inputmode="numeric" value="${esc(s.number_step || 1)}" class="mono"></label>
           <label class="field"><span class="flabel">Nächste Nummer</span><input value="${esc(nextNumber())}" class="mono" disabled></label>
         </div>
       </section>
@@ -793,8 +895,8 @@
         <label class="field"><span class="flabel">Kurzinfo</span><input data-tpl="data.hint" value="${esc(d.hint || "")}"></label>
         <label class="field"><span class="flabel">Sprache</span><select data-tpl="data.lang"><option value="de">Deutsch</option><option value="en">English</option></select></label>
         <label class="field"><span class="flabel">Steuerfall</span><select data-tpl="data.tax_case">${tcOpts}</select></label>
-        <label class="field"><span class="flabel">Zahlungsziel (Tage)</span><input type="number" min="0" data-tpl="data.due_days" value="${esc(d.due_days ?? 30)}"></label>
-        <label class="field"><span class="flabel">Reihenfolge</span><input type="number" data-tpl="sort" value="${esc(t.sort ?? 0)}"></label>
+        <label class="field"><span class="flabel">Zahlungsziel (Tage)</span><input inputmode="numeric" data-tpl="data.due_days" value="${esc(d.due_days ?? 30)}"></label>
+        <label class="field"><span class="flabel">Reihenfolge</span><input inputmode="numeric" data-tpl="sort" value="${esc(t.sort ?? 0)}"></label>
         <label class="field wide"><span class="flabel">Anlage · Titel</span><input data-tpl="data.annex.title" value="${esc(d.annex?.title || "")}"></label>
         <label class="field wide"><span class="flabel">Anlage · Text</span><textarea rows="3" data-tpl="data.annex.text">${esc(d.annex?.text || "")}</textarea></label>
         <label class="field wide"><span class="flabel">Hinweis im XML</span><input data-tpl="data.note" value="${esc(d.note || "")}"></label>
@@ -813,6 +915,7 @@
       </div>`;
     $('[data-tpl="data.lang"]').value = d.lang || "de";
     $('[data-tpl="data.tax_case"]').value = d.tax_case || "S19";
+    window.RootsUI.enhance($("#tpl-settings"));
   }
 
   /** Formularwerte der Vorlage in state.tplEdit uebernehmen. */
@@ -824,7 +927,7 @@
       let o = t;
       keys.slice(0, -1).forEach((k) => { o[k] = o[k] || {}; o = o[k]; });
       const k = keys[keys.length - 1];
-      o[k] = el.type === "number" ? Number(el.value) : el.value;
+      o[k] = el.inputMode === "numeric" ? Number(el.value) || 0 : el.value;
     });
     $$("[data-tpl-line]").forEach((el) => {
       const [i, k] = el.dataset.tplLine.split(".");
@@ -897,11 +1000,16 @@
         return render();
       }
 
+      const pick = e.target.closest("[data-pick-customer]");
+      if (pick) {
+        newFlow.customer = state.customers.find((c) => c.id === pick.dataset.pickCustomer) || null;
+        return renderNewStep();
+      }
       const tpl = e.target.closest("#tpl-list .tpl-card");
       if (tpl) {
-        const cid = $("#tpl-customer").value;
         $("#tpl-dialog").classList.remove("open");
-        return startEditor(blankInvoice(tpl.dataset.tplid, state.customers.find((c) => c.id === cid)));
+        if (state.view === "edit" && !(await leaveEditor())) return;
+        return startEditor(blankInvoice(tpl.dataset.tplid, newFlow.customer || null));
       }
 
       const btn = e.target.closest("[data-act]");
@@ -914,6 +1022,9 @@
       try {
         switch (act) {
           case "new": return openNew();
+          case "new-back": newFlow.customer = undefined; return renderNewStep();
+          case "pick-logo": return $("#logo-file").click();
+          case "drop-logo": state.edit.buyer_logo = ""; return renderEditor();
           case "close-dialog": return btn.closest(".modal-overlay").classList.remove("open");
           case "back":
             if (state.view === "edit" && !(await leaveEditor())) return;
@@ -934,7 +1045,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, buyer_reference: state.edit.buyer_reference } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, buyer_reference: state.edit.buyer_reference } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
@@ -1001,7 +1112,7 @@
     document.addEventListener("input", (e) => {
       const el = e.target.closest("[data-path]");
       if (!el || !state.edit) return;
-      setPath(el.dataset.path, el.type === "checkbox" ? el.checked : el.value);
+      setPath(el.dataset.path, el.type === "checkbox" ? el.checked : el.dataset.date ? window.RootsUI.deToIso(el.value) : el.value);
       updateLive();
     });
     document.addEventListener("change", (e) => {
@@ -1014,6 +1125,7 @@
         if (d.contact) state.edit.ordered_by = d.contact;
         if (d.buyer_reference) state.edit.buyer_reference = d.buyer_reference;
         state.edit.customer_id = c.id;
+        state.edit.buyer_logo = d.logo || "";
         return renderEditor();
       }
       const el = e.target.closest("select[data-path]");
