@@ -256,7 +256,7 @@
         const labelW = Math.min(w * 0.36, 120);
         const meta = [
           [L.number, inv.number, "number", true], [L.project, inv.project, "project"],
-          [L.period, `${date(inv.period_start)} - ${date(inv.period_end)}`, "period"],
+          [L.period, ctx.periodText(inv.period_start, inv.period_end, date), "period"],
           [L.cost, inv.cost_center, "cost_center"], [L.po, inv.po, "po"],
           [L.contact, inv.ordered_by, "ordered_by"],
         ].filter((r) => String(r[1] || "").trim());
@@ -310,7 +310,7 @@
       case "footer": {
         const p1 = [seller.name, seller.street, `${seller.zip} ${seller.city}`, seller.web].filter(Boolean).join("  |  ");
         const p2 = [`${L.ceo}: ${seller.ceo}`, `${L.seat}: ${seller.city}`, seller.court, seller.register].filter(Boolean).join("  |  ");
-        const p3 = [`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, seller.tax_number ? `${L.taxno} ${seller.tax_number}` : "", seller.vat_id ? `${L.vat} ${seller.vat_id}` : ""].filter(Boolean).join("  |  ");
+        const p3 = [`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, seller.tax_number ? `${L.taxno} ${seller.tax_number}` : "", tc.category === "AE" && seller.vat_id ? `${L.vat} ${seller.vat_id}` : ""].filter(Boolean).join("  |  ");
         [p1, p2, p3].forEach((p) => push(p));
         return;
       }

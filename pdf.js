@@ -36,6 +36,13 @@
     },
   };
 
+  /** Leistungszeitraum wie in den Vorlagen: "01.09. - 30.09.2026", Jahr nur einmal bei gleichem Jahr. */
+  function periodText(a, b, date) {
+    const da = date(a), db = date(b);
+    if (String(a).slice(0, 4) === String(b).slice(0, 4) && da.length === 10) return `${da.slice(0, 6)} - ${db}`;
+    return `${da} - ${db}`;
+  }
+
   const INK = rgb(0.06, 0.09, 0.16);
   const PH_COLOR = rgb(0.72, 0.76, 0.82);
   /** Graue Platzhalter fuer leere Felder, nur in der Live-Vorschau. */
@@ -65,7 +72,7 @@
     const L = T[lang];
     const tc = E.TAX_CASES[inv.tax_case] || E.TAX_CASES.S19;
     const t = E.totals(inv);
-    const money = (c) => E.money(c, lang);
+    const money = (c) => E.money(c, "de");
     const date = (iso) => E.fmtDate(iso, lang);
 
     const doc = await PDFDocument.create({ updateMetadata: false });
@@ -78,13 +85,13 @@
     const pages = [];
     const layout = inv.layout && Array.isArray(inv.layout.elements) && inv.layout.elements.length ? inv.layout : null;
     const layoutImages = layout ? await LY.prepare(doc, layout) : {};
-    const layoutCtx = (page) => ({ PDFLib, page, H, R, B, logo, images: layoutImages, inv, seller, L, tc, t, money, date, final: !!opts.final, wrap, countryName, regions: opts.regions || null, pageIndex: pages.length - 1, warnings: opts.warnings || null });
+    const layoutCtx = (page) => ({ PDFLib, page, H, R, B, logo, images: layoutImages, inv, seller, L, tc, t, money, date, final: !!opts.final, wrap, countryName, periodText, regions: opts.regions || null, pageIndex: pages.length - 1, warnings: opts.warnings || null });
 
     function footer(page) {
       const s = 6.8;
       const parts1 = [`${seller.name}`, `${seller.street}`, `${seller.zip} ${seller.city}`, seller.web].filter(Boolean).join("  |  ");
       const parts2 = [`${L.ceo}: ${seller.ceo}`, `${L.seat}: ${seller.city}`, seller.court, seller.register].filter(Boolean).join("  |  ");
-      const parts3 = [`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, seller.tax_number ? `${L.taxno} ${seller.tax_number}` : "", seller.vat_id ? `${L.vat} ${seller.vat_id}` : ""].filter(Boolean).join("  |  ");
+      const parts3 = [`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, seller.tax_number ? `${L.taxno} ${seller.tax_number}` : "", tc.category === "AE" && seller.vat_id ? `${L.vat} ${seller.vat_id}` : ""].filter(Boolean).join("  |  ");
       page.drawLine({ start: { x: ML, y: 74 }, end: { x: W - MR, y: 74 }, thickness: 0.5, color: LINE });
       [parts1, parts2, parts3].forEach((txt, i) => page.drawText(txt, { x: ML, y: 62 - i * 9.5, size: s, font: R, color: MUTED }));
     }
@@ -145,7 +152,7 @@
     const meta = [
       [L.number, inv.number, "number"],
       [L.project, inv.project, "project"],
-      [L.period, `${date(inv.period_start)} - ${date(inv.period_end)}`, "period"],
+      [L.period, periodText(inv.period_start, inv.period_end, date), "period"],
       [L.cost, inv.cost_center, "cost_center"],
       [L.po, inv.po, "po"],
       [L.contact, inv.ordered_by, "ordered_by"],
@@ -263,5 +270,5 @@
     return n ? n[lang === "en" ? 1 : 0] : c;
   }
 
-  return { render, countryName, COUNTRIES };
+  return { render, countryName, COUNTRIES, periodText };
 });

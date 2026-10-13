@@ -15,7 +15,6 @@
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  const VALIDATOR_URL = "https://erechnungsvalidator.service-bw.de/";
 
   const state = {
     user: null,
@@ -225,7 +224,6 @@
         <td>${statusTag(i)}</td>
         <td class="row-actions">
           ${i.status !== "draft" ? `<button class="icon-btn" data-act="pdf" title="PDF (Factur-X)"><i class="fa-solid fa-file-pdf"></i></button>` : ""}
-          <button class="icon-btn" data-act="copy" title="Als Vorlage kopieren"><i class="fa-solid fa-copy"></i></button>
         </td>
       </tr>`).join("");
   }
@@ -854,8 +852,6 @@
               <button class="btn-primary" data-act="dl-pdf"><i class="fa-solid fa-file-pdf"></i> PDF mit E-Rechnung</button>
               <button class="btn-secondary" data-act="dl-xml"><i class="fa-solid fa-code"></i> XML (CII)</button>
               <button class="btn-secondary" data-act="details"><i class="fa-solid fa-circle-info"></i> Details</button>
-              <button class="btn-secondary" data-act="validator"><i class="fa-solid fa-arrow-up-right-from-square"></i> Externer Validator BW</button>
-              <button class="btn-secondary" data-act="copy-detail"><i class="fa-solid fa-copy"></i> Als Vorlage kopieren</button>
               ${d.status === "final" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="fa-solid fa-circle-xmark"></i> Stornieren</button>` : ""}
             </div>
           </section>
@@ -874,19 +870,6 @@
     } finally {
       setBusy(false);
     }
-  }
-
-  function copyAsTemplate(data) {
-    const inv = JSON.parse(JSON.stringify(data));
-    const [ps, pe] = lastMonth();
-    inv.id = null;
-    inv.number = nextNumber();
-    inv.issue_date = today();
-    inv.due_date = addDays(inv.issue_date, 30);
-    inv.period_start = ps;
-    inv.period_end = pe;
-    inv.lines = (inv.lines || []).map((l) => ({ label: l.label, detail: l.detail || "", amount: "" }));
-    startEditor(inv);
   }
 
   /* ------------------------------------------------------------- Kunden --- */
@@ -1022,7 +1005,6 @@
         <label class="field"><span class="flabel">Reihenfolge</span><input inputmode="numeric" data-tpl="sort" value="${esc(t.sort ?? 0)}"></label>
         <label class="field wide"><span class="flabel">Anlage · Titel</span><input data-tpl="data.annex.title" value="${esc(d.annex?.title || "")}"></label>
         <label class="field wide"><span class="flabel">Anlage · Text</span><textarea rows="3" data-tpl="data.annex.text">${esc(d.annex?.text || "")}</textarea></label>
-        <label class="field wide"><span class="flabel">Hinweis im XML</span><input data-tpl="data.note" value="${esc(d.note || "")}"></label>
       </div>
       <div class="card-head" style="margin-top:16px"><h3><i class="fa-solid fa-list"></i> Standardpositionen</h3><button class="btn-ghost sm" data-act="tpl-add-line"><i class="fa-solid fa-plus"></i> Position</button></div>
       <div class="lines">${(d.lines || []).map((l, i) => `
@@ -1217,14 +1199,8 @@
             const row = state.invoices.find((i) => i.id === tr.dataset.id);
             return downloadPdf(row.id, row.number, row.customer_name);
           }
-          case "copy": {
-            const full = (await api("get", { id: tr.dataset.id })).invoice;
-            return copyAsTemplate(full.data);
-          }
-          case "copy-detail": return copyAsTemplate(detail.data);
           case "dl-pdf": return downloadPdf(detail.id, detail.number, detail.customer_name);
           case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${safeName(detail.number)}_factur-x.xml`, "application/xml");
-          case "validator": return openExternal(VALIDATOR_URL);
           case "details": {
             const d = detail, v = d.validation || {};
             const row = (k, val) => `<div class="kv"><span>${esc(k)}</span><b>${val}</b></div>`;
