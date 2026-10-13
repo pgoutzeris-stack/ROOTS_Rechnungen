@@ -252,7 +252,7 @@
       buyer_reference: "",
       ordered_by: c.contact || "",
       note: tpl.note || "",
-      buyer: customer ? { name: customer.name, street: c.street || "", street2: c.street2 || "", zip: c.zip || "", city: c.city || "", country: c.country || "DE", vat_id: c.vat_id || "", email: c.email || "", contact: "" } : { name: "", street: "", street2: "", zip: "", city: "", country: "DE", vat_id: "", email: "", contact: "" },
+      buyer: customer ? { name: customer.name, street: c.street || "", street2: c.street2 || "", zip: c.zip || "", city: c.city || "", country: c.country || "DE", vat_id: c.vat_id || "", vat_print: c.vat_print || "", hide_country: !!c.hide_country, email: c.email || "", contact: "" } : { name: "", street: "", street2: "", zip: "", city: "", country: "DE", vat_id: "", email: "", contact: "" },
       lines: tpl.lines.map((l) => ({ label: l.label, detail: l.detail || "", amount: "" })),
       annex: JSON.parse(JSON.stringify({ title: "", text: "", rows: [], ...(tpl.annex || {}) })),
       layout: tpl.layout && tpl.layout.elements?.length ? JSON.parse(JSON.stringify(tpl.layout)) : undefined,
@@ -905,6 +905,8 @@
         ${f("city", "Ort", d.city)}
         ${f("country", "Land (ISO)", d.country || "DE", 'maxlength="2"')}
         ${f("vat_id", "USt-IdNr.", d.vat_id)}
+        ${f("vat_print", "USt-IdNr. auf der Rechnung", d.vat_print, 'placeholder="z. B. TVA FR 27 552 032 534"')}
+        <label class="field"><span class="flabel">Länderzeile</span><label class="chk" style="height:44px"><input type="checkbox" name="hide_country" value="1" ${d.hide_country ? "checked" : ""}> weglassen</label></label>
         <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
@@ -936,6 +938,8 @@
     const { id, name, ...data } = fd;
     data.country = String(data.country || "").toUpperCase();
     data.vat_id = String(data.vat_id || "").replace(/\s+/g, "").toUpperCase();
+    data.hide_country = fd.hide_country === "1";
+    data.vat_print = String(data.vat_print || "").trim();
     const tpl = state.templates.find((t) => t.id === data.template_id);
     data.tax_case = tpl?.data?.tax_case || "";
     data.lang = tpl?.data?.lang || "de";
@@ -1191,7 +1195,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
@@ -1287,7 +1291,7 @@
       if (e.target.id === "pick-customer" && e.target.value) {
         const c = state.customers.find((x) => x.id === e.target.value);
         const d = c?.data || {};
-        Object.assign(state.edit.buyer, { name: c.name, street: d.street || "", street2: d.street2 || "", zip: d.zip || "", city: d.city || "", country: d.country || "DE", vat_id: d.vat_id || "", email: d.email || "" });
+        Object.assign(state.edit.buyer, { name: c.name, street: d.street || "", street2: d.street2 || "", zip: d.zip || "", city: d.city || "", country: d.country || "DE", vat_id: d.vat_id || "", vat_print: d.vat_print || "", hide_country: !!d.hide_country, email: d.email || "" });
         const ct = customerTemplate(c);
         if (ct) { state.edit.tax_case = ct.data.tax_case; state.edit.lang = ct.data.lang; state.edit.template = ct.id; }
         if (d.contact) state.edit.ordered_by = d.contact;

@@ -137,7 +137,7 @@
     text(`${seller.name} | ${seller.street} | ${seller.zip} ${seller.city}`, ML, H - 150, { size: 6.8, color: MUTED });
     y = H - 170;
     const buyerTop = y;
-    [b.name, b.street2 ? b.street2 : null, b.street, `${b.zip || ""} ${b.city || ""}`.trim(), countryName(b.country, lang), b.email, b.vat_id && tc.category !== "O" ? `${lang === "en" ? "VAT" : "USt-IdNr."} ${b.vat_id}` : null]
+    [b.name, b.street2 ? b.street2 : null, b.street, `${b.zip || ""} ${b.city || ""}`.trim(), b.hide_country ? null : countryName(b.country, lang), b.email, b.vat_id && tc.category !== "O" ? (b.vat_print || `${lang === "en" ? "VAT" : "USt-IdNr."} ${b.vat_id}`) : null]
       .filter(Boolean).forEach((line, i) => { text(line, ML, y, { bold: i === 0 }); y -= 13; });
     mark("buyer", ML, buyerTop, ML + 260, y + 13);
 

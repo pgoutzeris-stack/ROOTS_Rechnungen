@@ -247,7 +247,7 @@
       case "sender": push(`${seller.name} | ${seller.street} | ${seller.zip} ${seller.city}`); return;
       case "date": push(`${seller.city}, ${date(inv.issue_date)}`); mark("issue_date"); return;
       case "buyer": {
-        [b.name, b.street2, b.street, `${b.zip || ""} ${b.city || ""}`.trim(), ctx.countryName(b.country, lang), b.email, b.vat_id && tc.category !== "O" ? `${lang === "en" ? "VAT" : "USt-IdNr."} ${b.vat_id}` : null]
+        [b.name, b.street2, b.street, `${b.zip || ""} ${b.city || ""}`.trim(), b.hide_country ? null : ctx.countryName(b.country, lang), b.email, b.vat_id && tc.category !== "O" ? (b.vat_print || `${lang === "en" ? "VAT" : "USt-IdNr."} ${b.vat_id}`) : null]
           .filter(Boolean).forEach((ln, i) => push(ln, { bold: i === 0 }));
         mark("buyer");
         return;
