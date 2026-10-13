@@ -6,9 +6,9 @@
  * assets: { regular, bold, logo, icc } als Uint8Array.
  */
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory(require("pdf-lib"), require("@pdf-lib/fontkit"), require("./einvoice.js"));
-  else root.RootsInvoicePdf = factory(root.PDFLib, root.fontkit, root.RootsEInvoice);
-})(typeof self !== "undefined" ? self : this, function (PDFLib, fontkit, E) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("pdf-lib"), require("@pdf-lib/fontkit"), require("./einvoice.js"), require("./layout.js"));
+  else root.RootsInvoicePdf = factory(root.PDFLib, root.fontkit, root.RootsEInvoice, root.RootsLayout);
+})(typeof self !== "undefined" ? self : this, function (PDFLib, fontkit, E, LY) {
   "use strict";
 
   const { PDFDocument, rgb, PDFName, PDFString, PDFHexString, degrees } = PDFLib;
@@ -70,6 +70,9 @@
 
     const W = 595.28, H = 841.89, ML = 68, MR = 56, CW = W - ML - MR;
     const pages = [];
+    const layout = inv.layout && Array.isArray(inv.layout.elements) && inv.layout.elements.length ? inv.layout : null;
+    const layoutImages = layout ? await LY.prepare(doc, layout) : {};
+    const layoutCtx = (page) => ({ PDFLib, page, H, R, B, logo, images: layoutImages, inv, seller, L, tc, t, money, date, final: !!opts.final, wrap, countryName, regions: opts.regions || null, pageIndex: pages.length - 1, warnings: opts.warnings || null });
 
     function footer(page) {
       const s = 6.8;
@@ -81,10 +84,16 @@
       if (opts.final) page.drawText(L.e, { x: ML, y: 26, size: 6, font: R, color: MUTED });
     }
 
-    function newPage() {
+    function newPage(first) {
       const page = doc.addPage([W, H]);
-      page.drawImage(logo, { x: W - MR - 58, y: H - 50 - 58, width: 58, height: 58 });
-      footer(page);
+      if (layout) {
+        pages.push(page);
+        LY.draw(layoutCtx(page), layout, !!first);
+        pages.pop();
+      } else {
+        page.drawImage(logo, { x: W - MR - 58, y: H - 50 - 58, width: 58, height: 58 });
+        footer(page);
+      }
       if (!opts.final) {
         page.drawText(L.draft, { x: 120, y: 300, size: 110, font: B, color: rgb(0.86, 0.15, 0.15), opacity: 0.12, rotate: degrees(35) });
       }
@@ -102,16 +111,18 @@
     };
 
     /* ---------------- Seite 1 */
-    let p = newPage();
+    let p = newPage(true);
+    let y;
+    const b = inv.buyer || {};
     const text = (s, x, y, o = {}) => p.drawText(String(s ?? ""), { x, y, size: o.size || 9.5, font: o.bold ? B : R, color: o.color || INK });
     const right = (s, xr, y, o = {}) => {
       const f = o.bold ? B : R, size = o.size || 9.5;
       p.drawText(String(s), { x: xr - f.widthOfTextAtSize(String(s), size), y, size, font: f, color: o.color || INK });
     };
 
+    if (!layout) {
     text(`${seller.name} | ${seller.street} | ${seller.zip} ${seller.city}`, ML, H - 150, { size: 6.8, color: MUTED });
-    const b = inv.buyer || {};
-    let y = H - 170;
+    y = H - 170;
     const buyerTop = y;
     [b.name, b.street2 ? b.street2 : null, b.street, `${b.zip || ""} ${b.city || ""}`.trim(), countryName(b.country, lang), b.email, b.vat_id && tc.category !== "O" ? `${lang === "en" ? "VAT" : "USt-IdNr."} ${b.vat_id}` : null]
       .filter(Boolean).forEach((line, i) => { text(line, ML, y, { bold: i === 0 }); y -= 13; });
@@ -175,6 +186,7 @@
     text(`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, ML, y); y -= 24;
     wrap(L.thanks, R, 9.5, CW).forEach((ln) => { text(ln, ML, y); y -= 12.5; });
     if (y < 90) throw new Error("Seite 1 läuft in die Fußzeile. Positionen kürzen oder in die Anlage verschieben.");
+    }
 
     /* ---------------- Anlage */
     const a = inv.annex || {};

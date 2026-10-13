@@ -183,6 +183,7 @@
     const inList = ["list", "edit", "detail"].includes(state.view);
     $$(".filter-pill").forEach((p) => p.classList.toggle("active", inList && p.dataset.filter === state.filter));
     $$("[data-panel]").forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== state.view));
+    $(".dash-main-content").classList.toggle("designer-mode", state.view === "designer");
     if (state.view === "list") renderList();
     if (state.view === "customers") renderCustomers();
     if (state.view === "settings") renderSettings();
@@ -256,6 +257,7 @@
       buyer: customer ? { name: customer.name, street: c.street || "", street2: c.street2 || "", zip: c.zip || "", city: c.city || "", country: c.country || "DE", vat_id: c.vat_id || "", email: c.email || "", contact: "" } : { name: "", street: "", street2: "", zip: "", city: "", country: "DE", vat_id: "", email: "", contact: "" },
       lines: tpl.lines.map((l) => ({ label: l.label, detail: l.detail || "", amount: "" })),
       annex: JSON.parse(JSON.stringify({ title: "", text: "", rows: [], ...(tpl.annex || {}) })),
+      layout: tpl.layout && tpl.layout.elements?.length ? JSON.parse(JSON.stringify(tpl.layout)) : undefined,
       customer_id: customer?.id || null,
     };
   }
@@ -682,7 +684,13 @@
         result = { ok: false, items: schematron.errors.map((e) => ({ level: "error", rule: e.id, text: e.text })) };
       } else {
         setBusy(true, "PDF wird erzeugt");
-        const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true });
+        const warnings = [];
+        if (inv.layout?.elements?.length) {
+          const missing = window.RootsLayout.required(inv.layout);
+          if (missing.length) throw new Error("Layout der Vorlage unvollständig: " + missing.join(", "));
+        }
+        const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true, warnings });
+        if (warnings.length) throw new Error("Im PDF läuft Text über: " + [...new Set(warnings)].join(", "));
         const fx = await window.RootsFacturX.build(pdf, xml, inv.lang === "en" ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"));
         if (fx.xsd !== "passed") result = { ok: false, items: [{ level: "error", rule: "XSD", text: fx.xsd_error || "XML entspricht nicht dem Schema" }] };
         else if (fx.roundtrip !== "passed") result = { ok: false, items: [{ level: "error", rule: "PDF/A-3", text: "Die Rechnungsdaten ließen sich nicht in das PDF einbetten." }] };
@@ -1000,7 +1008,7 @@
         <div class="tpl-grid">${state.templates.map((x) => `
           <button class="tpl-card" data-act="tpl-edit" data-id="${esc(x.id)}">
             <span class="tpl-name">${esc(x.name)}</span>
-            <span class="tpl-meta">${esc(E.TAX_CASES[x.data?.tax_case]?.label || "")} · ${x.data?.lang === "en" ? "English" : "Deutsch"} · ${esc(x.data?.due_days || 30)} Tage</span>
+            <span class="tpl-meta">${esc(E.TAX_CASES[x.data?.tax_case]?.label || "")} · ${x.data?.lang === "en" ? "English" : "Deutsch"} · ${esc(x.data?.due_days || 30)} Tage${x.data?.layout?.elements?.length ? " · eigenes Layout" : ""}</span>
           </button>`).join("")}</div>`;
       return;
     }
@@ -1028,11 +1036,47 @@
       <div class="modal-actions">
         ${t.id ? `<button class="btn-danger-ghost" data-act="tpl-delete" style="margin-right:auto">Löschen</button>` : ""}
         <button class="btn-secondary" data-act="tpl-cancel">Abbrechen</button>
+        <button class="btn-secondary" data-act="tpl-design" style="margin-right:auto"><i class="fa-solid fa-pen-ruler"></i> Layout gestalten${d.layout?.elements?.length ? " · eigenes Layout" : ""}</button>
         <button class="btn-primary" data-act="tpl-save"><i class="fa-solid fa-floppy-disk"></i> Vorlage speichern</button>
       </div>`;
     $('[data-tpl="data.lang"]').value = d.lang || "de";
     $('[data-tpl="data.tax_case"]').value = d.tax_case || "S19";
     window.RootsUI.enhance($("#tpl-settings"));
+  }
+
+  /** Beispielrechnung fuer den Designer, passend zu Sprache und Steuerfall der Vorlage. */
+  function sampleInvoice(tpl) {
+    const d = tpl.data || {};
+    const [ps, pe] = lastMonth();
+    const foreign = d.tax_case === "AE" ? { country: "FR", city: "Paris", zip: "75009", street: "17 Boulevard Haussmann", vat_id: "FR27552032534" } : d.tax_case === "O" ? { country: "CH", city: "Bern", zip: "3011", street: "Bundesgasse 1" } : { country: "DE", city: "Hamburg", zip: "20245", street: "Musterstraße 1" };
+    return {
+      number: nextNumber(), lang: d.lang || "de", tax_case: d.tax_case || "S19",
+      issue_date: today(), due_date: addDays(today(), Number(d.due_days) || 30), period_start: ps, period_end: pe,
+      project: "Beispielprojekt Markenstrategie", po: "PO 4500012345", ordered_by: "Max Mustermann",
+      buyer: { name: "Muster AG", email: "", ...foreign },
+      lines: (d.lines?.length ? d.lines : [{ label: "Beratungshonorar" }]).map((l, i) => ({ label: l.label, detail: l.detail || "", amount: i === 0 ? "12.500,00" : "480,00" })),
+      annex: { title: "", text: "", rows: [] },
+    };
+  }
+
+  function openDesigner(tpl) {
+    state.view = "designer";
+    render();
+    window.RootsDesigner.open({
+      host: $("#designer"),
+      template: tpl,
+      renderPdf: async (layout, warnings) => window.RootsInvoicePdf.render({ ...sampleInvoice(tpl), layout }, state.settings.seller || {}, await pdfAssets(), { final: true, warnings }),
+      onSave: async (layout) => {
+        tpl.data.layout = layout || undefined;
+        const res = await api("template_save", { id: tpl.id, name: tpl.name, sort: tpl.sort, data: tpl.data });
+        tpl.id = res.template?.id || tpl.id;
+        state.templates = (await api("templates")).templates || [];
+        toast(layout ? "Layout gespeichert" : "Standardlayout aktiv", "ok");
+      },
+      onClose: () => { state.view = "settings"; render(); },
+      confirm: (t) => confirmDialog(t, "", "Verwerfen"),
+      toast,
+    });
   }
 
   /** Formularwerte der Vorlage in state.tplEdit uebernehmen. */
@@ -1232,6 +1276,10 @@
             await api("template_save", { id: t.id, name: t.name, sort: t.sort, data: t.data });
             state.templates = (await api("templates")).templates || [];
             state.tplEdit = null; renderSettings(); return toast("Vorlage gespeichert");
+          }
+          case "tpl-design": {
+            readTpl();
+            return openDesigner(state.tplEdit);
           }
           case "tpl-delete": {
             if (!(await confirmDialog(`Vorlage „${state.tplEdit.name}“ löschen?`, "", "Löschen"))) return;
