@@ -406,12 +406,6 @@
                 <button class="btn-ghost sm" data-act="save-customer"><i class="fa-solid fa-user-plus"></i> Als Kunde speichern</button>
               </div>
             </div>
-            <div class="buyer-head">
-              ${logoHtml({ name: inv.buyer.name, data: { logo: inv.buyer_logo ?? (state.customers.find((c) => c.id === inv.customer_id)?.data?.logo || "") } }, "cust-logo sm")}
-              <button class="btn-ghost sm" data-act="pick-logo"><i class="fa-solid fa-image"></i> Logo</button>
-              ${inv.buyer_logo ? `<button class="btn-ghost sm" data-act="drop-logo"><i class="fa-solid fa-xmark"></i></button>` : ""}
-              <input type="file" id="logo-file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden>
-            </div>
             <div class="fields">
               ${input("buyer.name", "Firma", { wide: true })}
               ${input("buyer.street", "Straße / Postfach", { wide: true })}
@@ -461,11 +455,6 @@
         </div>
       </div>`;
     window.RootsUI.enhance($("#editor"));
-    $("#logo-file").addEventListener("change", async (e) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
-      try { state.edit.buyer_logo = await window.RootsUI.logoFromFile(f); renderEditor(); } catch (err) { toast(err.message, "err"); }
-    });
     updateLive();
   }
 
@@ -570,7 +559,7 @@
       if (!box || !state.edit) return;
       try {
         const regions = {};
-        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, regions });
+        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions });
         const pages = await window.RootsUI.renderPdf(pdf, box);
         if (pages) {
           state.regions = regions;
@@ -1192,8 +1181,6 @@
           case "undo": return stepHistory(-1);
           case "redo": return stepHistory(1);
           case "new-back": newFlow.customer = undefined; return renderNewStep();
-          case "pick-logo": return $("#logo-file").click();
-          case "drop-logo": state.edit.buyer_logo = ""; return renderEditor();
           case "close-dialog": return btn.closest(".modal-overlay").classList.remove("open");
           case "back":
             if (state.view === "edit" && !(await leaveEditor())) return;

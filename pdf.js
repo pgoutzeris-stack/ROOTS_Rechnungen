@@ -95,7 +95,8 @@
         footer(page);
       }
       if (!opts.final) {
-        page.drawText(L.draft, { x: 120, y: 300, size: 110, font: B, color: rgb(0.86, 0.15, 0.15), opacity: 0.12, rotate: degrees(35) });
+        if (opts.preview) page.drawText(L.draft, { x: 150, y: 330, size: 84, font: B, color: rgb(0.58, 0.64, 0.72), opacity: 0.07, rotate: degrees(35) });
+        else page.drawText(L.draft, { x: 120, y: 300, size: 110, font: B, color: rgb(0.86, 0.15, 0.15), opacity: 0.12, rotate: degrees(35) });
       }
       pages.push(page);
       return page;
