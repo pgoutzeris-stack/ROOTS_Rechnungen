@@ -251,7 +251,7 @@
       project: "",
       po: "",
       cost_center: "",
-      buyer_reference: c.buyer_reference || "",
+      buyer_reference: "",
       ordered_by: c.contact || "",
       note: tpl.note || "",
       buyer: customer ? { name: customer.name, street: c.street || "", street2: c.street2 || "", zip: c.zip || "", city: c.city || "", country: c.country || "DE", vat_id: c.vat_id || "", email: c.email || "", contact: "" } : { name: "", street: "", street2: "", zip: "", city: "", country: "DE", vat_id: "", email: "", contact: "" },
@@ -392,7 +392,6 @@
               ${input("due_date", "Fällig am", { type: "date" })}
               ${input("project", "Projekt", { wide: true })}
               ${input("po", "Bestellnummer")}
-              ${input("buyer_reference", "Käuferreferenz")}
               ${input("cost_center", "Kostenstelle")}
               ${input("ordered_by", inv.lang === "en" ? "Ordered by" : "Kontakt")}
             </div>
@@ -533,7 +532,7 @@
   }
   function scheduleAutosave() {
     clearTimeout(autosaveTimer);
-    setSaveState("Ungespeichert");
+
     autosaveTimer = setTimeout(autosave, 1200);
   }
   function autosave() {
@@ -543,7 +542,7 @@
       setSaveState("Speichert …");
       try {
         await saveDraft(true);
-        setSaveState("Gespeichert · " + new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }), "ok");
+        setSaveState("");
       } catch (e) {
         setSaveState("Nicht gespeichert: " + e.message, "err");
       }
@@ -564,7 +563,11 @@
         if (pages) {
           state.regions = regions;
           $("#preview-info").textContent = pages === 1 ? "1 Seite" : `${pages} Seiten`;
-          if (pendingFocus) { window.RootsUI.highlight(box, regions[pendingFocus]); pendingFocus = null; }
+          const active = document.activeElement?.closest?.("[data-path]");
+          const key = pendingFocus || (active ? regionKey(active.dataset.path) : null);
+          if (key && regions[key]) window.RootsUI.highlight(box, regions[key]);
+          else window.RootsUI.release(box);
+          pendingFocus = null;
         }
       } catch (e) {
         $("#preview-info").textContent = e.message;
@@ -680,7 +683,14 @@
         }
         const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true, warnings });
         if (warnings.length) throw new Error("Im PDF läuft Text über: " + [...new Set(warnings)].join(", "));
-        const fx = await window.RootsFacturX.build(pdf, xml, inv.lang === "en" ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"));
+        const en = inv.lang === "en";
+        const meta = {
+          author: seller.name,
+          title: `${en ? "Invoice" : "Rechnung"} ${inv.number} · ${inv.buyer.name}`,
+          subject: `${en ? "Invoice" : "Rechnung"} ${inv.number} ${en ? "dated" : "vom"} ${E.fmtDate(inv.issue_date, "de")} · ${seller.name}`,
+          keywords: `${en ? "Invoice" : "Rechnung"}, E-Rechnung, ZUGFeRD, Factur-X, EN 16931`,
+        };
+        const fx = await window.RootsFacturX.build(pdf, xml, en ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"), meta);
         if (fx.xsd !== "passed") result = { ok: false, items: [{ level: "error", rule: "XSD", text: fx.xsd_error || "XML entspricht nicht dem Schema" }] };
         else if (fx.roundtrip !== "passed") result = { ok: false, items: [{ level: "error", rule: "PDF/A-3", text: "Die Rechnungsdaten ließen sich nicht in das PDF einbetten." }] };
         else result = { ok: true, xml, fx, schematron };
@@ -915,7 +925,6 @@
         <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
-        ${f("buyer_reference", "Käuferreferenz", d.buyer_reference)}
       </div>`;
     $("#cust-form").insertAdjacentHTML("afterbegin", `
       <div class="buyer-head">
@@ -1200,7 +1209,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, buyer_reference: state.edit.buyer_reference } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
@@ -1306,7 +1315,6 @@
         const ct = customerTemplate(c);
         if (ct) { state.edit.tax_case = ct.data.tax_case; state.edit.lang = ct.data.lang; state.edit.template = ct.id; }
         if (d.contact) state.edit.ordered_by = d.contact;
-        if (d.buyer_reference) state.edit.buyer_reference = d.buyer_reference;
         state.edit.customer_id = c.id;
         state.edit.buyer_logo = d.logo || "";
         return renderEditor();
@@ -1319,10 +1327,19 @@
     $("#settings-form").addEventListener("submit", (e) => { e.preventDefault(); saveSettings(e.target).catch((err) => toast(err.message, "err")); });
   }
 
+  let releaseTimer = null;
   document.addEventListener("focusin", (e) => {
     const el = e.target.closest?.("[data-path]");
     if (!el || state.view !== "edit") return;
+    clearTimeout(releaseTimer);
     window.RootsUI.highlight($("#preview-pages"), state.regions?.[regionKey(el.dataset.path)]);
+  });
+  document.addEventListener("focusout", (e) => {
+    if (!e.target.closest?.("[data-path]") || state.view !== "edit") return;
+    clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(() => {
+      if (!document.activeElement?.closest?.("[data-path]")) window.RootsUI.release($("#preview-pages"));
+    }, 250);
   });
   document.addEventListener("keydown", (e) => {
     if (state.view !== "edit" || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;

@@ -23,7 +23,10 @@ sys.modules.setdefault("requests", types.ModuleType("requests"))
 from facturx import generate_from_binary, xml_check_xsd, get_xml_from_pdf
 import facturx as _fx
 
-def rg_build(pdf_b64, xml_str, lang):
+_fx_mod = __import__("facturx.facturx", fromlist=["CREATOR"])
+_fx_mod.CREATOR = "ROOTS Rechnungen"
+
+def rg_build(pdf_b64, xml_str, lang, meta_json="{}"):
     res = {"xsd": "failed", "roundtrip": "failed", "lib": "factur-x " + getattr(_fx, "__version__", "7.6")}
     pdf = base64.b64decode(pdf_b64)
     xml = xml_str.encode("utf-8")
@@ -33,7 +36,9 @@ def rg_build(pdf_b64, xml_str, lang):
     except Exception as e:
         res["xsd_error"] = str(e)[:1200]
         return json.dumps(res)
-    out = generate_from_binary(pdf, xml, flavor="factur-x", level="en16931", check_xsd=False, lang=lang, xmp_compression=False)
+    meta = json.loads(meta_json or "{}")
+    pdf_metadata = {k: meta[k] for k in ("author", "title", "subject", "keywords") if meta.get(k)} or None
+    out = generate_from_binary(pdf, xml, flavor="factur-x", level="en16931", check_xsd=False, lang=lang, xmp_compression=False, pdf_metadata=pdf_metadata)
     fn, back = get_xml_from_pdf(out, check_xsd=True)
     if fn == "factur-x.xml" and back == xml:
         res["roundtrip"] = "passed"
@@ -84,12 +89,12 @@ def rg_xsd(xml_str):
     return ready;
   }
 
-  async function build(pdfBytes, xml, lang, onStatus) {
+  async function build(pdfBytes, xml, lang, onStatus, meta) {
     const py = await load(onStatus);
     onStatus?.("XSD-Prüfung und Einbettung");
     const fn = py.globals.get("rg_build");
     try {
-      return JSON.parse(fn(bytesToBase64(pdfBytes), xml, lang));
+      return JSON.parse(fn(bytesToBase64(pdfBytes), xml, lang, JSON.stringify(meta || {})));
     } finally {
       fn.destroy();
     }

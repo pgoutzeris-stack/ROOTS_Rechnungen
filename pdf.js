@@ -37,6 +37,12 @@
   };
 
   const INK = rgb(0.06, 0.09, 0.16);
+  const PH_COLOR = rgb(0.72, 0.76, 0.82);
+  /** Graue Platzhalter fuer leere Felder, nur in der Live-Vorschau. */
+  const PLACEHOLDER = {
+    de: { number: "Rechnungsnummer", project: "Projekt", period: "Leistungszeitraum", cost_center: "Kostenstelle", po: "Bestellnummer", ordered_by: "Kontakt" },
+    en: { number: "Invoice number", project: "Project", period: "Delivery period", cost_center: "Cost center", po: "Purchase order", ordered_by: "Ordered by" },
+  };
   const MUTED = rgb(0.4, 0.45, 0.52);
   const LINE = rgb(0.85, 0.87, 0.9);
 
@@ -81,7 +87,6 @@
       const parts3 = [`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, seller.tax_number ? `${L.taxno} ${seller.tax_number}` : "", seller.vat_id ? `${L.vat} ${seller.vat_id}` : ""].filter(Boolean).join("  |  ");
       page.drawLine({ start: { x: ML, y: 74 }, end: { x: W - MR, y: 74 }, thickness: 0.5, color: LINE });
       [parts1, parts2, parts3].forEach((txt, i) => page.drawText(txt, { x: ML, y: 62 - i * 9.5, size: s, font: R, color: MUTED }));
-      if (opts.final) page.drawText(L.e, { x: ML, y: 26, size: 6, font: R, color: MUTED });
     }
 
     function newPage(first) {
@@ -143,13 +148,13 @@
       [L.period, `${date(inv.period_start)} - ${date(inv.period_end)}`, "period"],
       [L.cost, inv.cost_center, "cost_center"],
       [L.po, inv.po, "po"],
-      [L.ref, inv.buyer_reference, "buyer_reference"],
       [L.contact, inv.ordered_by, "ordered_by"],
-    ].filter((r) => String(r[1] || "").trim());
+    ].filter((r) => opts.preview || String(r[1] || "").trim());
     meta.forEach(([k, v, key]) => {
       text(k, ML, y, { color: MUTED });
-      const lines = wrap(v, k === L.number ? B : R, 9.5, CW - 120);
-      lines.forEach((ln, i) => text(ln, ML + 120, y - i * 12.5, { bold: k === L.number }));
+      const empty = !String(v || "").trim();
+      const lines = wrap(empty ? PLACEHOLDER[lang][key] || "…" : v, k === L.number ? B : R, 9.5, CW - 120);
+      lines.forEach((ln, i) => text(ln, ML + 120, y - i * 12.5, { bold: k === L.number && !empty, color: empty ? PH_COLOR : undefined }));
       mark(key, ML, y, W - MR, y - (lines.length - 1) * 12.5);
       y -= 12.5 * lines.length + 3;
     });
@@ -178,9 +183,6 @@
 
     mark("totals", ML, totalsTop, W - MR, y + 22);
     y -= 6;
-    text(`${L.due} ${date(inv.due_date)}.`, ML, y);
-    mark("due_date", ML, y, ML + 260, y);
-    y -= 20;
     wrap(L.pay, R, 9.5, CW).forEach((ln) => { text(ln, ML, y); y -= 12.5; });
     y -= 3;
     text(seller.name, ML, y, { bold: true }); y -= 12.5;
@@ -226,7 +228,7 @@
     doc.setAuthor(seller.name);
     doc.setSubject(`${title} · ${b.name || ""}`);
     doc.setCreator("ROOTS Rechnungen");
-    doc.setProducer("ROOTS Rechnungen (pdf-lib, factur-x)");
+    doc.setProducer("ROOTS Rechnungen");
     doc.setLanguage(lang === "en" ? "en-GB" : "de-DE");
     const now = opts.now || new Date();
     doc.setCreationDate(now);

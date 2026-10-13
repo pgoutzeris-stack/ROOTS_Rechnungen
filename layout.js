@@ -80,7 +80,6 @@
         el({ type: "block", block: "thanks", x: 24, y: 236, w: 166, h: 9 }),
         el({ type: "line", x: 24, y: 270.8, w: 166, h: 0, repeat: true, style: { stroke: "#d9dee6", strokeWidth: 0.5 } }),
         el({ type: "block", block: "footer", x: 24, y: 273.2, w: 166, h: 11, repeat: true, style: { size: 6.8, color: "#667386" } }),
-        el({ type: "block", block: "enote", x: 24, y: 285.5, w: 166, h: 3, repeat: true, style: { size: 6, color: "#667386" } }),
       ],
     };
   }
@@ -259,7 +258,7 @@
           [L.number, inv.number, "number", true], [L.project, inv.project, "project"],
           [L.period, `${date(inv.period_start)} - ${date(inv.period_end)}`, "period"],
           [L.cost, inv.cost_center, "cost_center"], [L.po, inv.po, "po"],
-          [L.ref, inv.buyer_reference, "buyer_reference"], [L.contact, inv.ordered_by, "ordered_by"],
+          [L.contact, inv.ordered_by, "ordered_by"],
         ].filter((r) => String(r[1] || "").trim());
         let y = top;
         meta.forEach(([label, value, key, bold]) => {
@@ -302,8 +301,6 @@
         mark("totals");
         return;
       case "payment":
-        push(`${L.due} ${date(inv.due_date)}.`);
-        rows[rows.length - 1].gap = lh * 1.5;
         push(L.pay);
         push(seller.name, { bold: true });
         push(`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`);

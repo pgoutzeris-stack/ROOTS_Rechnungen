@@ -158,6 +158,7 @@ window.RootsUI = (function () {
       if (token !== renderToken) return;
       const wrap = document.createElement("div");
       wrap.className = "preview-page-wrap";
+      if (container.dataset.zoomKey) wrap.dataset.restore = "1";
       wrap.style.width = width + "px";
       wrap.appendChild(canvas);
       canvases.push(wrap);
@@ -205,13 +206,10 @@ window.RootsUI = (function () {
 
   /* ------------------------------------------------- Bereich hervorheben --- */
 
-  let zoomTimer = null;
-  let lastHl = { key: "", at: 0 };
   /**
-   * Bereich einer Seite dezent umrahmen und leicht heranzoomen.
-   * region: { page, x, y, w, h } als Anteile der Seite. Wird derselbe Bereich
-   * innerhalb kurzer Zeit erneut gemeldet (Tippen, Neuzeichnen), bleibt die
-   * Markierung ruhig stehen statt neu einzublenden.
+   * Bereich einer Seite dezent umrahmen und leicht heranzoomen. Der Zoom bleibt,
+   * solange im Formular ein Feld aktiv ist; release() zoomt wieder heraus.
+   * region: { page, x, y, w, h } als Anteile der Seite.
    */
   function highlight(container, region) {
     if (!container || !region) return;
@@ -219,45 +217,51 @@ window.RootsUI = (function () {
     const wrap = wraps[region.page];
     if (!wrap) return;
     const key = JSON.stringify(region);
-    const steady = lastHl.key === key && Date.now() - lastHl.at < 2600;
-    lastHl = { key, at: Date.now() };
-
     let hl = wrap.querySelector(".pv-hl");
-    if (!hl || hl.dataset.key !== key) {
-      container.querySelectorAll(".pv-hl").forEach((el) => el.remove());
-      hl = document.createElement("div");
-      hl.className = "pv-hl" + (steady ? " steady" : "");
+    const known = hl && hl.dataset.key === key;
+    if (!known) {
+      container.querySelectorAll(".pv-hl").forEach((el) => { if (el !== hl) el.remove(); });
+      if (!hl) {
+        hl = document.createElement("div");
+        hl.className = "pv-hl" + (wrap.dataset.restore === "1" && container.dataset.zoomKey === key ? " steady" : "");
+        wrap.appendChild(hl);
+      }
       hl.dataset.key = key;
       hl.style.left = region.x * 100 + "%";
       hl.style.top = region.y * 100 + "%";
       hl.style.width = region.w * 100 + "%";
       hl.style.height = region.h * 100 + "%";
-      wrap.appendChild(hl);
     }
     hl.classList.remove("fade");
-
     wraps.forEach((w) => { if (w !== wrap) w.classList.remove("zoomed"); });
-    wrap.style.transformOrigin = `${Math.max(0, region.x) * 100}% ${(region.y + region.h / 2) * 100}%`;
-    if (steady && !wrap.classList.contains("zoomed")) {
-      wrap.classList.add("no-anim", "zoomed");
+    const origin = `${Math.max(0, region.x) * 100}% ${(region.y + region.h / 2) * 100}%`;
+    const wasZoomed = wrap.classList.contains("zoomed");
+    if (!wasZoomed && wrap.dataset.restore === "1") {
+      // nach dem Neuzeichnen der Vorschau ohne Animation wieder herstellen
+      wrap.classList.add("no-anim");
+      wrap.style.transformOrigin = origin;
+      wrap.classList.add("zoomed");
       void wrap.offsetWidth;
       wrap.classList.remove("no-anim");
     } else {
+      wrap.style.transformOrigin = origin;
       wrap.classList.add("zoomed");
     }
-    if (!steady) {
+    container.dataset.zoomKey = key;
+    const restored = wrap.dataset.restore === "1";
+    delete wrap.dataset.restore;
+    if (!known && !restored) {
       const target = wrap.offsetTop + wrap.offsetHeight * (region.y + region.h / 2) - container.clientHeight / 2;
-      container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+      if (Math.abs(container.scrollTop - target) > 40) container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     }
-
-    clearTimeout(zoomTimer);
-    zoomTimer = setTimeout(() => {
-      wrap.classList.remove("zoomed");
-      hl.classList.add("fade");
-      lastHl.key = "";
-      setTimeout(() => hl.remove(), 900);
-    }, 2200);
   }
 
-  return { enhance, highlight, close, isoToDe, deToIso, renderPdf, logoFromFile, monogram, safeLogo };
+  function release(container) {
+    if (!container) return;
+    container.querySelectorAll(".preview-page-wrap.zoomed").forEach((w) => w.classList.remove("zoomed"));
+    container.querySelectorAll(".pv-hl").forEach((hl) => { hl.classList.add("fade"); setTimeout(() => hl.classList.contains("fade") && hl.remove(), 700); });
+    delete container.dataset.zoomKey;
+  }
+
+  return { enhance, highlight, release, close, isoToDe, deToIso, renderPdf, logoFromFile, monogram, safeLogo };
 })();
