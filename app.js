@@ -197,7 +197,7 @@
   }
 
   function statusTag(inv) {
-    if (inv.status === "final") return `<span class="tag tag-ok"><i class="fa-solid fa-shield-halved"></i> E-Rechnung · EN 16931</span>`;
+    if (inv.status === "final") return `<span class="tag tag-ok"><i class="fa-solid fa-circle-check"></i> E-Rechnung</span>`;
     if (inv.status === "cancelled") return `<span class="tag tag-bad"><i class="fa-solid fa-circle-xmark"></i> Storniert</span>`;
     return `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf</span>`;
   }
@@ -331,6 +331,7 @@
     editorSnapshot = inv.id ? JSON.stringify(normalized(inv)) : null;
     state.edit = inv;
     state.check = null;
+    state.showErrors = false;
     state.view = "edit";
     render();
   }
@@ -368,24 +369,11 @@
           ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
           <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-download"></i> Entwurf</button>
           <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-          <button class="btn-secondary" data-act="check"><i class="fa-solid fa-shield-halved"></i> Prüfen</button>
-          <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-lock"></i> Endgültig erstellen</button>
+          <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-file-circle-check"></i> Rechnung erstellen</button>
         </div>
       </div>
       <div class="editor-split">
         <div class="editor-form">
-          <section class="card check-card">
-            <div class="card-head">
-              <h3><i class="fa-solid fa-shield-halved"></i> E-Rechnung</h3>
-              <div class="std-tags">
-                <span class="tag tag-std">EN 16931</span>
-                <span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span>
-                <span class="tag tag-std">PDF/A-3</span>
-              </div>
-            </div>
-            <ol class="checks" id="checks"></ol>
-            <ul class="issues" id="issues"></ul>
-          </section>
           <section class="card">
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
@@ -475,6 +463,13 @@
     updateLive();
   }
 
+  /** Pflichtangaben plus doppelte Rechnungsnummer. */
+  function collectIssues(inv) {
+    const issues = E.precheck(normalized(inv), state.settings.seller || {});
+    if (state.invoices.some((i) => i.number === String(inv.number).trim() && i.id !== inv.id)) issues.unshift({ level: "error", rule: "BR-02", field: "number", text: "Rechnungsnummer ist bereits vergeben." });
+    return issues;
+  }
+
   let previewTimer = null;
   function schedulePreview() {
     clearTimeout(previewTimer);
@@ -502,30 +497,8 @@
       ? `<div><span>Netto</span><b>${money(t.net)}</b></div><div><span>19 % USt</span><b>${money(t.tax)}</b></div><div class="grand"><span>Brutto</span><b>${money(t.gross)}</b></div>`
       : `<div class="grand"><span>Rechnungsbetrag</span><b>${money(t.gross)}</b></div><div class="tax-note">${esc(tc ? tc[inv.lang === "en" ? "en" : "de"] : "")}</div>`;
 
-    const issues = E.precheck(inv, state.settings.seller || {});
-    if (state.invoices.some((i) => i.number === inv.number && i.id !== inv.id)) issues.unshift({ level: "error", rule: "BR-02", field: "number", text: "Rechnungsnummer ist bereits vergeben." });
-    const fp = fingerprint();
-    const check = state.check && state.check.fingerprint === fp ? state.check : null;
-    const errors = issues.filter((m) => m.level === "error");
-
-    const step = (ok, label, detail) => `<li class="${ok === true ? "ok" : ok === false ? "bad" : "open"}"><i class="${ok === true ? "fa-solid fa-circle-check" : ok === false ? "fa-solid fa-circle-xmark" : "fa-regular fa-circle"}"></i><span>${esc(label)}</span>${detail ? `<em>${esc(detail)}</em>` : ""}</li>`;
-    $("#checks").innerHTML =
-      step(errors.length ? false : true, "Pflichtangaben § 14 UStG", errors.length ? `${errors.length} offen` : "") +
-      step(check ? check.schematron.passed : null, "Schematron EN 16931", check ? (check.schematron.passed ? "" : `${check.schematron.errors.length} Verstöße`) : "") +
-      step(check ? check.fx?.xsd === "passed" : null, "XSD Factur-X EN 16931", "") +
-      step(check ? check.fx?.roundtrip === "passed" : null, "PDF/A-3 mit factur-x.xml", "") +
-      step(null, "Serverprüfung", "beim Erstellen");
-
-    const schem = check && !check.schematron.passed ? check.schematron.errors.map((e) => ({ level: "error", rule: e.id, text: e.text })) : [];
-    const xsdErr = check && check.fx && check.fx.xsd !== "passed" ? [{ level: "error", rule: "XSD", text: check.fx.xsd_error || "XSD nicht bestanden" }] : [];
-    const all = [...issues, ...schem, ...xsdErr];
-    $("#issues").innerHTML = all.map((m) => `<li class="${m.level}"><b>${esc(m.rule)}</b> ${esc(m.text)}</li>`).join("");
-
-    const ready = !!check && check.passed && !errors.length;
-    $("#btn-finalize").disabled = !ready || state.busy;
-    $("#edit-state").innerHTML = ready
-      ? `<span class="tag tag-ok"><i class="fa-solid fa-shield-halved"></i> Geprüft · bereit</span>`
-      : `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf · nicht versendbar</span>`;
+    const issues = state.showErrors ? collectIssues(inv) : [];
+    $("#edit-state").innerHTML = `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf</span>`;
 
     $$("[data-path]").forEach((el) => {
       const p = el.dataset.path;
@@ -580,76 +553,131 @@
     if (!quiet) toast("Entwurf gespeichert");
   }
 
-  async function runCheck() {
+  const issueList = (items) => `<ul class="result-list">${items.map((m) => `<li class="${m.level === "warn" ? "warn" : "error"}">${esc(m.text)}${m.rule ? `<small>${esc(m.rule)}</small>` : ""}</li>`).join("")}</ul>`;
+
+  /**
+   * Rechnung erstellen: Pflichtangaben, Schematron, XSD, PDF/A-3 mit XML und
+   * zuletzt die Serverpruefung laufen am Stueck im Hintergrund. Nur wenn alles
+   * besteht, entsteht eine endgueltige Rechnung; sonst erklaert ein Pop-up, was fehlt.
+   */
+  async function finalize() {
     const inv = normalized(state.edit);
     const seller = state.settings.seller || {};
-    const pre = E.precheck(inv, seller).filter((m) => m.level === "error");
-    if (pre.length) {
-      state.check = null;
+    const issues = collectIssues(state.edit);
+    const errors = issues.filter((m) => m.level === "error");
+    if (errors.length) {
+      state.showErrors = true;
       updateLive();
-      toast("Pflichtangaben fehlen", "err");
-      return null;
-    }
-    setBusy(true, "Schematron EN 16931");
-    try {
-      await saveDraft(true);
-      const fp = fingerprint();
-      const xml = E.buildXml(inv, seller);
-      const schematron = await window.RootsSchematron.validate(xml);
-      let fx = null;
-      if (schematron.passed) {
-        setBusy(true, "PDF wird erzeugt");
-        const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true });
-        fx = await window.RootsFacturX.build(pdf, xml, inv.lang === "en" ? "en-GB" : "de-DE", (s) => setBusy(true, s));
-      }
-      const passed = schematron.passed && fx?.xsd === "passed" && fx?.roundtrip === "passed";
-      state.check = { fingerprint: fp, schematron, fx, xml, passed };
-      toast(passed ? "E-Rechnung gültig" : "Prüfung nicht bestanden", passed ? "ok" : "err");
-      return state.check;
-    } finally {
-      setBusy(false);
-      updateLive();
-    }
-  }
-
-  async function finalize() {
-    const inv = state.edit;
-    if (!state.check || state.check.fingerprint !== fingerprint() || !state.check.passed) {
-      toast("Erst prüfen", "err");
+      await showDialog({
+        icon: "fa-triangle-exclamation", tone: "bad",
+        title: "Angaben fehlen",
+        html: issueList(errors),
+        actions: [{ label: "Zurück zur Rechnung", value: true, primary: true }],
+      });
       return;
     }
-    const ok = await confirmDialog(`Rechnung ${inv.number} endgültig erstellen?`, "Danach ist sie unveränderlich. Korrekturen nur noch über Storno.", "Endgültig erstellen");
-    if (!ok) return;
-    setBusy(true, "Serverprüfung");
+
+    let result;
+    setBusy(true, "Rechnung wird geprüft");
     try {
-      const c = state.check;
+      await saveDraft(true);
+      const xml = E.buildXml(inv, seller);
+      const schematron = await window.RootsSchematron.validate(xml);
+      if (!schematron.passed) {
+        result = { ok: false, items: schematron.errors.map((e) => ({ level: "error", rule: e.id, text: e.text })) };
+      } else {
+        setBusy(true, "PDF wird erzeugt");
+        const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true });
+        const fx = await window.RootsFacturX.build(pdf, xml, inv.lang === "en" ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"));
+        if (fx.xsd !== "passed") result = { ok: false, items: [{ level: "error", rule: "XSD", text: fx.xsd_error || "XML entspricht nicht dem Schema" }] };
+        else if (fx.roundtrip !== "passed") result = { ok: false, items: [{ level: "error", rule: "PDF/A-3", text: "Die Rechnungsdaten ließen sich nicht in das PDF einbetten." }] };
+        else result = { ok: true, xml, fx, schematron };
+      }
+    } catch (e) {
+      result = { ok: false, items: [{ level: "error", text: e.message }] };
+    } finally {
+      setBusy(false);
+    }
+
+    if (!result.ok) {
+      await showDialog({
+        icon: "fa-circle-xmark", tone: "bad",
+        title: "Keine gültige E-Rechnung",
+        html: `<p>Die Rechnung wurde nicht erstellt.</p>${issueList(result.items)}`,
+        actions: [{ label: "Zurück zur Rechnung", value: true, primary: true }],
+      });
+      return;
+    }
+
+    const warns = issues.filter((m) => m.level === "warn");
+    const go = await showDialog({
+      icon: "fa-file-circle-check", tone: "ok",
+      title: `Rechnung ${inv.number} erstellen?`,
+      html: `<p>Danach ist sie unveränderlich. Korrekturen nur über Storno.</p>${warns.length ? issueList(warns) : ""}`,
+      actions: [{ label: "Abbrechen", value: false }, { label: "Erstellen", value: true, primary: true }],
+    });
+    if (!go) return;
+
+    setBusy(true, "Rechnung wird erstellt");
+    const id = state.edit.id;
+    try {
       await api("finalize", {
-        id: inv.id,
-        xml: c.xml,
-        pdf: c.fx.pdf,
+        id,
+        xml: result.xml,
+        pdf: result.fx.pdf,
         validation: {
           precheck: "passed",
           schematron: "passed",
-          schematron_version: c.schematron.version,
-          schematron_warnings: c.schematron.warnings.map((w) => w.id),
-          xsd: c.fx.xsd,
-          roundtrip: c.fx.roundtrip,
-          lib: c.fx.lib,
+          schematron_version: result.schematron.version,
+          schematron_warnings: result.schematron.warnings.map((w) => w.id),
+          xsd: result.fx.xsd,
+          roundtrip: result.fx.roundtrip,
+          lib: result.fx.lib,
           checked_at: new Date().toISOString(),
         },
       });
-      toast(`Rechnung ${inv.number} erstellt`, "ok");
-      const id = inv.id;
-      state.edit = null;
-      state.check = null;
-      state.view = "list";
-      await refresh();
-      openDetail(id);
     } catch (e) {
-      toast(e.message, "err");
-    } finally {
       setBusy(false);
+      await showDialog({
+        icon: "fa-circle-xmark", tone: "bad",
+        title: "Keine gültige E-Rechnung",
+        html: `<p>Die Serverprüfung hat die Rechnung abgelehnt.</p>${issueList(String(e.message).replace(/^E-Rechnung abgelehnt:\s*/, "").split("; ").map((t) => ({ level: "error", text: t })))}`,
+        actions: [{ label: "Zurück zur Rechnung", value: true, primary: true }],
+      });
+      return;
     }
+    setBusy(false);
+    state.edit = null;
+    state.showErrors = false;
+    state.view = "list";
+    await refresh();
+    await openDetail(id);
+    const dl = await showDialog({
+      icon: "fa-circle-check", tone: "ok",
+      title: `Rechnung ${inv.number} erstellt`,
+      html: `<p>${esc(inv.buyer.name)} · ${esc(money(E.totals(inv).gross))}</p>`,
+      actions: [{ label: "Schließen", value: false }, { label: "PDF herunterladen", value: true, primary: true }],
+    });
+    if (dl) downloadPdf(id, inv.number, inv.buyer.name);
+  }
+
+  /** Allgemeines Pop-up. actions: [{label, value, primary}] */
+  function showDialog({ icon, tone, title, html, actions }) {
+    return new Promise((resolve) => {
+      const dlg = $("#result-dialog");
+      $("#result-icon").className = `result-icon ${tone || ""}`;
+      $("#result-icon").innerHTML = `<i class="fa-solid ${icon || "fa-circle-info"}"></i>`;
+      $("#result-title").textContent = title;
+      $("#result-body").innerHTML = html || "";
+      $("#result-actions").innerHTML = actions.map((a, i) => `<button class="${a.primary ? "btn-primary" : "btn-secondary"}" data-i="${i}">${esc(a.label)}</button>`).join("");
+      $("#result-actions").onclick = (e) => {
+        const b = e.target.closest("button[data-i]");
+        if (!b) return;
+        dlg.classList.remove("open");
+        resolve(actions[Number(b.dataset.i)].value);
+      };
+      dlg.classList.add("open");
+    });
   }
 
   async function previewDraft() {
@@ -715,29 +743,14 @@
             ${row("Brutto", esc(money(t.gross)))}
             ${d.status === "cancelled" ? row("Storniert", `${esc(fmtDate(d.cancelled_at))} · ${esc(d.cancel_reason || "")}`) : ""}
           </section>
-          <section class="card">
-            <h3><i class="fa-solid fa-clipboard-check"></i> Prüfprotokoll</h3>
-            ${row("Pflichtangaben", ok(v.precheck))}
-            ${row(`Schematron (${esc(v.schematron_version || "EN 16931")})`, ok(v.schematron))}
-            ${row("XSD Factur-X EN 16931", ok(v.xsd))}
-            ${row("PDF/A-3 · factur-x.xml eingebettet", ok(v.roundtrip))}
-            ${row("Serverprüfung", ok(v.server))}
-            ${row("Erstellt", esc(new Date(d.finalized_at).toLocaleString("de-DE")))}
-            ${row("SHA-256 PDF", `<code>${esc(d.pdf_sha256 || "")}</code>`)}
-            ${row("SHA-256 XML", `<code>${esc(d.xml_sha256 || "")}</code>`)}
-          </section>
         </div>
         <aside class="editor-side">
           <section class="card sticky">
-            <h3><i class="fa-solid fa-shield-halved"></i> E-Rechnung</h3>
-            <div class="std-tags">
-              <span class="tag tag-std">EN 16931</span>
-              <span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span>
-              <span class="tag tag-std">PDF/A-3</span>
-            </div>
+            <h3><i class="fa-solid fa-file-invoice"></i> E-Rechnung</h3>
             <div class="side-actions">
               <button class="btn-primary" data-act="dl-pdf"><i class="fa-solid fa-file-pdf"></i> PDF mit E-Rechnung</button>
               <button class="btn-secondary" data-act="dl-xml"><i class="fa-solid fa-code"></i> XML (CII)</button>
+              <button class="btn-secondary" data-act="details"><i class="fa-solid fa-circle-info"></i> Details</button>
               <button class="btn-secondary" data-act="validator"><i class="fa-solid fa-arrow-up-right-from-square"></i> Externer Validator BW</button>
               <button class="btn-secondary" data-act="copy-detail"><i class="fa-solid fa-copy"></i> Als Vorlage kopieren</button>
               ${d.status === "final" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="fa-solid fa-circle-xmark"></i> Stornieren</button>` : ""}
@@ -1049,7 +1062,6 @@
           case "del-annex-row": state.edit.annex.rows.splice(Number(btn.dataset.i), 1); return renderEditor();
           case "save": setBusy(true, "Speichern"); try { await saveDraft(); } finally { setBusy(false); } return updateLive();
           case "preview": return previewDraft();
-          case "check": return void (await runCheck());
           case "finalize": return finalize();
           case "delete-draft":
             if (!(await confirmDialog(`Entwurf ${state.edit.number} löschen?`, "", "Löschen"))) return;
@@ -1075,6 +1087,27 @@
           case "dl-pdf": return downloadPdf(detail.id, detail.number, detail.customer_name);
           case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${safeName(detail.number)}_factur-x.xml`, "application/xml");
           case "validator": return openExternal(VALIDATOR_URL);
+          case "details": {
+            const d = detail, v = d.validation || {};
+            const row = (k, val) => `<div class="kv"><span>${esc(k)}</span><b>${val}</b></div>`;
+            const ok = (x) => (x === "passed" ? `<span class="tag tag-ok sm"><i class="fa-solid fa-check"></i> bestanden</span>` : `<span class="tag tag-bad sm">${esc(x || "fehlt")}</span>`);
+            const allOk = ["precheck", "schematron", "xsd", "roundtrip", "server"].every((k) => v[k] === "passed");
+            return showDialog({
+              icon: allOk ? "fa-circle-check" : "fa-triangle-exclamation", tone: allOk ? "ok" : "bad",
+              title: `E-Rechnung ${d.number}`,
+              html: `<div class="std-tags"><span class="tag tag-std">EN 16931</span><span class="tag tag-std">Factur-X 1.09 · ZUGFeRD</span><span class="tag tag-std">Profil EN 16931</span><span class="tag tag-std">PDF/A-3</span></div>
+                ${row("Pflichtangaben § 14 UStG", ok(v.precheck))}
+                ${row(`Schematron (${esc(v.schematron_version || "EN 16931")})`, ok(v.schematron))}
+                ${row("XSD Factur-X EN 16931", ok(v.xsd))}
+                ${row("PDF/A-3 · factur-x.xml eingebettet", ok(v.roundtrip))}
+                ${row("Serverprüfung", ok(v.server))}
+                ${row("Geprüft mit", esc(v.lib || ""))}
+                ${row("Erstellt", esc(new Date(d.finalized_at).toLocaleString("de-DE")))}
+                ${row("SHA-256 PDF", `<code>${esc(d.pdf_sha256 || "")}</code>`)}
+                ${row("SHA-256 XML", `<code>${esc(d.xml_sha256 || "")}</code>`)}`,
+              actions: [{ label: "Schließen", value: true, primary: true }],
+            });
+          }
           case "cancel": {
             const reason = await confirmDialog(`Rechnung ${detail.number} stornieren?`, "Die Rechnung bleibt gespeichert und wird als storniert markiert. Eine Gutschrift an den Kunden ist separat zu erstellen.", "Stornieren", true);
             if (!reason) return;
