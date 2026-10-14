@@ -22,6 +22,7 @@
     invoices: [],
     customers: [],
     templates: [],
+    sequences: [],
     view: "list",
     filter: "all",
     edit: null,        // Entwurf im Editor
@@ -83,16 +84,23 @@
     $("#busy-label").textContent = label || "";
   }
 
-  function nextNumber() {
-    const s = state.settings || {};
-    const prefix = s.number_prefix || "";
-    let last = Number(s.number_last) || 0;
-    state.invoices.forEach((i) => {
-      if (!String(i.number).startsWith(prefix)) return;
-      const n = Number(String(i.number).slice(prefix.length));
-      if (Number.isFinite(n) && n > last) last = n;
-    });
-    return prefix + (last + (Number(s.number_step) || 1));
+  /** Nummernkreis der Vorlage einer Rechnung. */
+  function sequenceOf(inv) {
+    const tpl = state.templates.find((t) => t.id === inv?.template);
+    return state.sequences.find((q) => q.id === tpl?.data?.sequence_id) || null;
+  }
+
+  /** Naechste freie Nummer eines Kreises, wie rg_reserve_number sie vergeben wuerde. */
+  function previewNumber(seq) {
+    if (!seq || seq.next_number == null) return "";
+    let n = Number(seq.next_number);
+    const used = new Set(state.invoices.map((i) => i.number).filter(Boolean));
+    while (used.has(seq.prefix + n)) n += Number(seq.step) || 1;
+    return seq.prefix + n;
+  }
+
+  async function refreshSequences() {
+    try { state.sequences = (await api("sequences")).sequences || []; renderVatBanner(); } catch (_) { /* naechster Versuch beim Laden */ }
   }
 
   function download(bytes, name, type) {
@@ -168,7 +176,8 @@
   }
 
   async function refresh() {
-    const [inv, cust, tpl] = await Promise.all([api("list"), api("customers"), api("templates")]);
+    const [inv, cust, tpl, seqs] = await Promise.all([api("list"), api("customers"), api("templates"), api("sequences")]);
+    state.sequences = seqs.sequences || [];
     state.invoices = inv.invoices || [];
     state.customers = cust.customers || [];
     state.templates = tpl.templates || [];
@@ -194,6 +203,12 @@
   function renderVatBanner() {
     const missing = !E.vatOk(state.settings?.seller?.vat_id);
     $("#vat-banner").classList.toggle("hidden", !missing || state.view === "settings");
+    const open = state.sequences.filter((q) => !q.confirmed_at && state.templates.some((t) => t.data?.sequence_id === q.id));
+    const b = $("#seq-banner");
+    if (b) {
+      b.classList.toggle("hidden", !open.length || state.view === "settings" || state.view === "designer");
+      $("#seq-banner-text").textContent = open.length ? `Nummernkreis ${open.map((q) => "„" + q.name + "“").join(", ")} nicht freigegeben · Rechnungen können noch nicht erstellt werden` : "";
+    }
   }
 
   function statusTag(inv) {
@@ -216,7 +231,7 @@
     }
     body.innerHTML = rows.map((i) => `
       <tr data-id="${esc(i.id)}" class="row-${esc(i.status)}">
-        <td class="mono">${esc(i.number)}</td>
+        <td class="mono">${i.number ? esc(i.number) : '<span class="cell-sub">–</span>'}</td>
         <td>${esc(fmtDate(i.issue_date))}</td>
         <td><div class="cell-main">${esc(i.customer_name || "")}</div><div class="cell-sub">${esc(i.project || "")}</div></td>
         <td>${esc(E.TAX_CASES[i.tax_case]?.label || "")}</td>
@@ -238,7 +253,7 @@
     const c = customer?.data || {};
     return {
       id: null,
-      number: nextNumber(),
+      number: null,
       template: row.id || null,
       lang: tpl.lang,
       tax_case: tpl.tax_case,
@@ -370,7 +385,7 @@
           <span id="save-state" class="save-state"></span>
           <button class="icon-btn hist-btn" id="btn-undo" data-act="undo" title="Rückgängig (⌘Z)"><i class="fa-solid fa-rotate-left"></i></button>
           <button class="icon-btn hist-btn" id="btn-redo" data-act="redo" title="Wiederholen (⇧⌘Z)"><i class="fa-solid fa-rotate-right"></i></button>
-          ${inv.id ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
+          ${inv.id && !inv.number ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
           <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-download"></i> Entwurf</button>
           <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
           <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-file-circle-check"></i> Rechnung erstellen</button>
@@ -381,7 +396,7 @@
           <section class="card">
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
-              ${input("number", "Rechnungsnummer", { mono: true })}
+              <label class="field"><span class="flabel">Rechnungsnummer</span><input value="${esc(inv.number || "")}" placeholder="Wird beim Erstellen vergeben" class="mono" disabled></label>
               ${input("tax_case", "Steuerfall", { options: tcOpts })}
               ${input("lang", "Sprache", { options: [["de", "Deutsch"], ["en", "English"]] })}
               ${input("issue_date", "Rechnungsdatum", { type: "date" })}
@@ -457,9 +472,7 @@
 
   /** Pflichtangaben plus doppelte Rechnungsnummer. */
   function collectIssues(inv) {
-    const issues = E.precheck(normalized(inv), state.settings.seller || {});
-    if (state.invoices.some((i) => i.number === String(inv.number).trim() && i.id !== inv.id)) issues.unshift({ level: "error", rule: "BR-02", field: "number", text: "Rechnungsnummer ist bereits vergeben." });
-    return issues;
+    return E.precheck(normalized(inv), state.settings.seller || {}).filter((m) => m.field !== "number");
   }
 
   /** Feldpfad -> Bereich im PDF. */
@@ -534,7 +547,7 @@
     autosaveTimer = setTimeout(autosave, 1200);
   }
   function autosave() {
-    if (!state.edit || !String(state.edit.number || "").trim()) return;
+    if (!state.edit) return;
     saveChain = saveChain.then(async () => {
       if (!state.edit) return;
       setSaveState("Speichert …");
@@ -616,14 +629,21 @@
     o[keys[keys.length - 1]] = value;
   }
 
-  async function saveDraft(quiet) {
+  /** Alle Speichervorgaenge laufen hintereinander, sonst legen zwei gleichzeitige den Entwurf doppelt an. */
+  let saveQueue = Promise.resolve();
+  function saveDraft(quiet) {
+    const run = saveQueue.then(() => saveDraftNow(quiet));
+    saveQueue = run.catch(() => {});
+    return run;
+  }
+
+  async function saveDraftNow(quiet) {
+    if (!state.edit) return;
     const inv = normalized(state.edit);
-    if (!inv.number) throw new Error("Rechnungsnummer fehlt.");
     const t = E.totals(inv);
     const res = await api("save", {
       id: inv.id,
       row: {
-        number: inv.number,
         data: { ...inv, id: undefined },
         customer_name: inv.buyer.name || null,
         issue_date: inv.issue_date || null,
@@ -647,8 +667,45 @@
    * zuletzt die Serverpruefung laufen am Stueck im Hintergrund. Nur wenn alles
    * besteht, entsteht eine endgueltige Rechnung; sonst erklaert ein Pop-up, was fehlt.
    */
+  /** XML bauen, Schematron, PDF, XSD und Einbettung. Liefert { ok, xml, fx, schematron } oder { ok:false, items }. */
+  async function buildAll(inv, seller) {
+    try {
+      const xml = E.buildXml(inv, seller);
+      const schematron = await window.RootsSchematron.validate(xml);
+      if (!schematron.passed) return { ok: false, items: schematron.errors.map((e) => ({ level: "error", rule: e.id, text: e.text })) };
+      setBusy(true, "PDF wird erzeugt");
+      const warnings = [];
+      if (inv.layout?.elements?.length) {
+        const missing = window.RootsLayout.required(inv.layout);
+        if (missing.length) throw new Error("Layout der Vorlage unvollständig: " + missing.join(", "));
+      }
+      const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true, warnings });
+      if (warnings.length) throw new Error("Im PDF läuft Text über: " + [...new Set(warnings)].join(", "));
+      const en = inv.lang === "en";
+      const meta = {
+        author: seller.name,
+        title: `${en ? "Invoice" : "Rechnung"} ${inv.number} · ${inv.buyer.name}`,
+        subject: `${en ? "Invoice" : "Rechnung"} ${inv.number} ${en ? "dated" : "vom"} ${E.fmtDate(inv.issue_date, "de")} · ${seller.name}`,
+        keywords: `${en ? "Invoice" : "Rechnung"}, E-Rechnung, ZUGFeRD, Factur-X, EN 16931`,
+      };
+      const fx = await window.RootsFacturX.build(pdf, xml, en ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"), meta);
+      if (fx.xsd !== "passed") return { ok: false, items: [{ level: "error", rule: "XSD", text: fx.xsd_error || "XML entspricht nicht dem Schema" }] };
+      if (fx.roundtrip !== "passed") return { ok: false, items: [{ level: "error", rule: "PDF/A-3", text: "Die Rechnungsdaten ließen sich nicht in das PDF einbetten." }] };
+      return { ok: true, xml, fx, schematron };
+    } catch (e) {
+      return { ok: false, items: [{ level: "error", text: e.message }] };
+    }
+  }
+
+  const invalidDialog = (items, lead) => showDialog({
+    icon: "fa-circle-xmark", tone: "bad",
+    title: "Keine gültige E-Rechnung",
+    html: `<p>${esc(lead || "Die Rechnung wurde nicht erstellt.")}</p>${issueList(items)}`,
+    actions: [{ label: "Zurück zur Rechnung", value: true, primary: true }],
+  });
+
   async function finalize() {
-    const inv = normalized(state.edit);
+    let inv = normalized(state.edit);
     const seller = state.settings.seller || {};
     const issues = collectIssues(state.edit);
     const errors = issues.filter((m) => m.level === "error");
@@ -664,59 +721,50 @@
       return;
     }
 
-    let result;
-    setBusy(true, "Rechnung wird geprüft");
-    try {
-      await saveDraft(true);
-      const xml = E.buildXml(inv, seller);
-      const schematron = await window.RootsSchematron.validate(xml);
-      if (!schematron.passed) {
-        result = { ok: false, items: schematron.errors.map((e) => ({ level: "error", rule: e.id, text: e.text })) };
-      } else {
-        setBusy(true, "PDF wird erzeugt");
-        const warnings = [];
-        if (inv.layout?.elements?.length) {
-          const missing = window.RootsLayout.required(inv.layout);
-          if (missing.length) throw new Error("Layout der Vorlage unvollständig: " + missing.join(", "));
-        }
-        const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true, warnings });
-        if (warnings.length) throw new Error("Im PDF läuft Text über: " + [...new Set(warnings)].join(", "));
-        const en = inv.lang === "en";
-        const meta = {
-          author: seller.name,
-          title: `${en ? "Invoice" : "Rechnung"} ${inv.number} · ${inv.buyer.name}`,
-          subject: `${en ? "Invoice" : "Rechnung"} ${inv.number} ${en ? "dated" : "vom"} ${E.fmtDate(inv.issue_date, "de")} · ${seller.name}`,
-          keywords: `${en ? "Invoice" : "Rechnung"}, E-Rechnung, ZUGFeRD, Factur-X, EN 16931`,
-        };
-        const fx = await window.RootsFacturX.build(pdf, xml, en ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"), meta);
-        if (fx.xsd !== "passed") result = { ok: false, items: [{ level: "error", rule: "XSD", text: fx.xsd_error || "XML entspricht nicht dem Schema" }] };
-        else if (fx.roundtrip !== "passed") result = { ok: false, items: [{ level: "error", rule: "PDF/A-3", text: "Die Rechnungsdaten ließen sich nicht in das PDF einbetten." }] };
-        else result = { ok: true, xml, fx, schematron };
-      }
-    } catch (e) {
-      result = { ok: false, items: [{ level: "error", text: e.message }] };
-    } finally {
-      setBusy(false);
-    }
-
-    if (!result.ok) {
-      await showDialog({
-        icon: "fa-circle-xmark", tone: "bad",
-        title: "Keine gültige E-Rechnung",
-        html: `<p>Die Rechnung wurde nicht erstellt.</p>${issueList(result.items)}`,
-        actions: [{ label: "Zurück zur Rechnung", value: true, primary: true }],
+    const seq = sequenceOf(inv);
+    if (!inv.number && (!seq || !seq.confirmed_at || seq.next_number == null)) {
+      const go = await showDialog({
+        icon: "fa-hashtag", tone: "bad",
+        title: "Nummernkreis nicht freigegeben",
+        html: `<p>${seq ? `Der Nummernkreis „${esc(seq.name)}“ dieser Vorlage braucht eine bestätigte Startnummer.` : "Die Vorlage hat keinen Nummernkreis."}</p>`,
+        actions: [{ label: "Zurück", value: false }, { label: "Zu den Einstellungen", value: true, primary: true }],
       });
+      if (go) { await saveDraft(true); state.view = "settings"; render(); }
       return;
     }
+
+    // 1. Probelauf mit der voraussichtlichen Nummer: Fehler zeigen, bevor eine Nummer vergeben wird
+    const preview = inv.number || previewNumber(seq);
+    setBusy(true, "Rechnung wird geprüft");
+    await saveDraft(true);
+    let result = await buildAll({ ...inv, number: preview }, seller);
+    setBusy(false);
+    if (!result.ok) return void (await invalidDialog(result.items));
 
     const warns = issues.filter((m) => m.level === "warn");
     const go = await showDialog({
       icon: "fa-file-circle-check", tone: "ok",
-      title: `Rechnung ${inv.number} erstellen?`,
+      title: `Rechnung ${preview} erstellen?`,
       html: `<p>Danach ist sie unveränderlich. Korrekturen nur über Storno.</p>${warns.length ? issueList(warns) : ""}`,
       actions: [{ label: "Abbrechen", value: false }, { label: "Erstellen", value: true, primary: true }],
     });
     if (!go) return;
+
+    // 2. Nummer verbindlich vergeben, endgueltig bauen
+    setBusy(true, "Rechnungsnummer wird vergeben");
+    try {
+      if (!inv.number) {
+        const res = await api("reserve", { id: state.edit.id });
+        state.edit.number = res.number;
+        inv = normalized(state.edit);
+        refreshSequences();
+      }
+      if (inv.number !== preview) result = await buildAll(inv, seller);
+    } catch (e) {
+      result = { ok: false, items: [{ level: "error", text: e.message }] };
+    }
+    setBusy(false);
+    if (!result.ok) return void (await invalidDialog(result.items, `Die Rechnung hat die Nummer ${inv.number || "–"} erhalten, wurde aber nicht erstellt.`));
 
     setBusy(true, "Rechnung wird erstellt");
     const id = state.edit.id;
@@ -970,17 +1018,46 @@
         ${!E.vatOk(seller.vat_id) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> USt-IdNr. fehlt · Reverse-Charge-Rechnungen sind gesperrt (§ 14a UStG)</p>` : ""}
         ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> IBAN-Prüfziffer falsch</p>` : ""}
       </section>
-      <section class="card">
-        <h3><i class="fa-solid fa-hashtag"></i> Nummernkreis</h3>
-        <div class="fields">
-          <label class="field"><span class="flabel">Präfix</span><input name="number_prefix" value="${esc(s.number_prefix || "")}" class="mono"></label>
-          <label class="field"><span class="flabel">Letzte Nummer</span><input name="number_last" inputmode="numeric" value="${esc(s.number_last || 0)}" class="mono"></label>
-          <label class="field"><span class="flabel">Schrittweite</span><input name="number_step" inputmode="numeric" value="${esc(s.number_step || 1)}" class="mono"></label>
-          <label class="field"><span class="flabel">Nächste Nummer</span><input value="${esc(nextNumber())}" class="mono" disabled></label>
-        </div>
-      </section>
       <div class="form-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Stammdaten speichern</button></div>`;
+    renderSequences();
     renderTemplates();
+  }
+
+  function renderSequences() {
+    const box = $("#seq-settings");
+    if (!box) return;
+    const fmtWho = (q) => q.confirmed_at ? `Freigegeben am ${new Date(q.confirmed_at).toLocaleDateString("de-DE")}` : "";
+    box.innerHTML = `
+      <div class="card-head"><h3><i class="fa-solid fa-hashtag"></i> Nummernkreise</h3><button class="btn-ghost sm" data-act="seq-new"><i class="fa-solid fa-plus"></i> Nummernkreis</button></div>
+      <div class="seq-list">${state.sequences.map((q) => {
+        const used = state.templates.filter((t) => t.data?.sequence_id === q.id).map((t) => t.name);
+        const next = previewNumber(q);
+        const n2 = q.next_number != null ? [1, 2].map((k) => q.prefix + (Number(q.next_number) + k * q.step)).join(", ") : "";
+        return `
+        <div class="seq-item" data-seq="${esc(q.id)}">
+          <div class="seq-head">
+            <strong>${esc(q.name)}</strong>
+            ${q.confirmed_at ? `<span class="tag tag-ok sm"><i class="fa-solid fa-check"></i> ${esc(fmtWho(q))}</span>` : `<span class="tag tag-bad sm"><i class="fa-solid fa-lock"></i> Nicht freigegeben</span>`}
+          </div>
+          <div class="fields">
+            <label class="field"><span class="flabel">Name</span><input data-seq-f="name" value="${esc(q.name)}"></label>
+            <label class="field"><span class="flabel">Präfix</span><input data-seq-f="prefix" value="${esc(q.prefix)}" class="mono"></label>
+            <label class="field"><span class="flabel">Schrittweite</span><input data-seq-f="step" inputmode="numeric" value="${esc(q.step)}" class="mono"></label>
+            <label class="field"><span class="flabel">${q.confirmed_at ? "Nächste Nummer" : "Erste Rechnungsnummer"}</span><input data-seq-f="next_number" inputmode="numeric" value="${esc(q.next_number ?? "")}" placeholder="z. B. 4411" class="mono ${q.next_number == null ? "invalid" : ""}"></label>
+            <div class="field wide seq-meta">${next ? `Nächste Rechnung: <b class="mono">${esc(next)}</b>${n2 ? `, danach <span class="mono">${esc(n2)}</span>` : ""}` : "Startnummer fehlt"}${used.length ? ` · Vorlagen: ${esc(used.join(", "))}` : ""}</div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-secondary" data-act="seq-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
+            ${q.confirmed_at ? "" : `<button class="btn-primary" data-act="seq-confirm"><i class="fa-solid fa-lock-open"></i> Freigeben</button>`}
+          </div>
+        </div>`;
+      }).join("")}</div>`;
+  }
+
+  function readSeq(item) {
+    const val = (k) => item.querySelector(`[data-seq-f="${k}"]`).value.trim();
+    const next = val("next_number").replace(/\D/g, "");
+    return { id: item.dataset.seq || null, name: val("name"), prefix: val("prefix"), step: Math.max(1, Number(val("step")) || 1), next: next === "" ? null : Number(next) };
   }
 
   function renderTemplates() {
@@ -1005,6 +1082,7 @@
         <label class="field"><span class="flabel">Kurzinfo</span><input data-tpl="data.hint" value="${esc(d.hint || "")}"></label>
         <label class="field"><span class="flabel">Sprache</span><select data-tpl="data.lang"><option value="de">Deutsch</option><option value="en">English</option></select></label>
         <label class="field"><span class="flabel">Steuerfall</span><select data-tpl="data.tax_case">${tcOpts}</select></label>
+        <label class="field"><span class="flabel">Nummernkreis</span><select data-tpl="data.sequence_id">${state.sequences.map((q) => `<option value="${esc(q.id)}" ${d.sequence_id === q.id ? "selected" : ""}>${esc(q.name)} · ${esc(q.prefix)}</option>`).join("")}</select></label>
         <label class="field"><span class="flabel">Zahlungsziel (Tage)</span><input inputmode="numeric" data-tpl="data.due_days" value="${esc(d.due_days ?? 30)}"></label>
         <label class="field"><span class="flabel">Reihenfolge</span><input inputmode="numeric" data-tpl="sort" value="${esc(t.sort ?? 0)}"></label>
         <label class="field wide"><span class="flabel">Anlage · Titel</span><input data-tpl="data.annex.title" value="${esc(d.annex?.title || "")}"></label>
@@ -1034,7 +1112,7 @@
     const [ps, pe] = lastMonth();
     const foreign = d.tax_case === "AE" ? { country: "FR", city: "Paris", zip: "75009", street: "17 Boulevard Haussmann", vat_id: "FR27552032534" } : d.tax_case === "O" ? { country: "CH", city: "Bern", zip: "3011", street: "Bundesgasse 1" } : { country: "DE", city: "Hamburg", zip: "20245", street: "Musterstraße 1" };
     return {
-      number: nextNumber(), lang: d.lang || "de", tax_case: d.tax_case || "S19",
+      number: previewNumber(state.sequences[0]) || "237-0000", lang: d.lang || "de", tax_case: d.tax_case || "S19",
       issue_date: today(), due_date: addDays(today(), Number(d.due_days) || 30), period_start: ps, period_end: pe,
       project: "Beispielprojekt Markenstrategie", po: "PO 4500012345", ordered_by: "Max Mustermann",
       buyer: { name: "Muster AG", email: "", ...foreign },
@@ -1091,9 +1169,6 @@
     const res = await api("settings_save", {
       settings: {
         seller,
-        number_prefix: String(fd.get("number_prefix") || ""),
-        number_last: Number(fd.get("number_last")) || 0,
-        number_step: Math.max(1, Number(fd.get("number_step")) || 1),
       },
     });
     state.settings = res.settings;
@@ -1173,6 +1248,35 @@
       try {
         switch (act) {
           case "new": return openNew();
+          case "seq-new": {
+            await api("sequence_save", { id: null, name: "Neuer Nummernkreis", prefix: "", next: null, step: 1 });
+            await refreshSequences(); return renderSettings();
+          }
+          case "seq-save": {
+            const q = readSeq(btn.closest(".seq-item"));
+            const before = state.sequences.find((x) => x.id === q.id);
+            if (before?.confirmed_at && (before.prefix !== q.prefix || Number(before.step) !== q.step || Number(before.next_number) !== q.next)) {
+              if (!(await confirmDialog("Freigabe aufheben?", "Präfix, Schrittweite oder Nummer ändern sich. Bis zur erneuten Freigabe lassen sich mit diesem Kreis keine Rechnungen erstellen.", "Ändern"))) return;
+            }
+            await api("sequence_save", q);
+            await refreshSequences(); renderSettings(); return toast("Nummernkreis gespeichert");
+          }
+          case "seq-confirm": {
+            const item = btn.closest(".seq-item");
+            const q = readSeq(item);
+            if (q.next == null) return toast("Erste Rechnungsnummer fehlt", "err");
+            const first = q.prefix + q.next, then = [1, 2].map((k) => q.prefix + (q.next + k * q.step)).join(", ");
+            const ok = await showDialog({
+              icon: "fa-hashtag", tone: "ok",
+              title: `Nummernkreis „${q.name}“ freigeben?`,
+              html: `<p>Die nächste Rechnung erhält <b class="mono">${esc(first)}</b>, danach folgen <span class="mono">${esc(then)}</span>. Bereits vergebene Nummern werden übersprungen.</p>`,
+              actions: [{ label: "Abbrechen", value: false }, { label: "Freigeben", value: true, primary: true }],
+            });
+            if (!ok) return;
+            await api("sequence_save", q);
+            await api("sequence_confirm", { id: q.id });
+            await refreshSequences(); renderSettings(); return toast("Nummernkreis freigegeben", "ok");
+          }
           case "undo": return stepHistory(-1);
           case "redo": return stepHistory(1);
           case "new-back": newFlow.customer = undefined; return renderNewStep();
