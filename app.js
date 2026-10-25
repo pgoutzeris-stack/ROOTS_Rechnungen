@@ -442,8 +442,40 @@
     return `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf</span>`;
   }
 
+  /* Sortierung der Liste; Standard: neueste zuerst. Merkt sich die Wahl im Browser. */
+  let listSort = { key: "date", dir: -1 };
+  try { const v = JSON.parse(localStorage.getItem("rg-list-sort") || "null"); if (v && v.key) listSort = v; } catch (_) { /* egal */ }
+  const STATUS_ORDER = { draft: 0, final: 1, cancelled: 2 };
+  const de = (a, b) => String(a || "").localeCompare(String(b || ""), "de", { numeric: true, sensitivity: "base" });
+  function sortValue(i, key) {
+    switch (key) {
+      case "number": return i.number || "";
+      case "date": return i.issue_date || String(i.created_at || "").slice(0, 10);
+      case "customer": return i.customer_name || "";
+      case "project": return i.project || "";
+      case "tax": return E.TAX_CASES[i.tax_case]?.label || "";
+      case "gross": return Number(i.gross_cents) || 0;
+      case "status": return STATUS_ORDER[i.status] ?? 9;
+    }
+    return "";
+  }
+  function sortRows(rows) {
+    const { key, dir } = listSort;
+    return rows.slice().sort((a, b) => {
+      const x = sortValue(a, key), y = sortValue(b, key);
+      // leere Werte immer ans Ende
+      if ((x === "" || x == null) !== (y === "" || y == null)) return x === "" || x == null ? 1 : -1;
+      const c = typeof x === "number" && typeof y === "number" ? x - y : de(x, y);
+      return c * dir || de(b.created_at, a.created_at);
+    });
+  }
+
   function renderList() {
-    const rows = state.invoices.filter((i) => state.filter === "all" || i.status === state.filter);
+    $$(".sort").forEach((b) => {
+      b.classList.toggle("on", b.dataset.sort === listSort.key);
+      b.classList.toggle("asc", b.dataset.sort === listSort.key && listSort.dir === 1);
+    });
+    const rows = sortRows(state.invoices.filter((i) => state.filter === "all" || i.status === state.filter));
     const counts = { all: state.invoices.length, draft: 0, final: 0, cancelled: 0 };
     state.invoices.forEach((i) => counts[i.status]++);
     $$(".filter-pill").forEach((p) => {
@@ -1718,6 +1750,14 @@
         return startEditor(blankInvoice(tpl.dataset.tplid, newFlow.customer || null));
       }
 
+      const sortBtn = e.target.closest(".sort[data-sort]");
+      if (sortBtn) {
+        const key = sortBtn.dataset.sort;
+        // Text aufsteigend, Datum und Betrag absteigend beginnen
+        listSort = listSort.key === key ? { key, dir: -listSort.dir } : { key, dir: ["date", "gross", "number"].includes(key) ? -1 : 1 };
+        try { localStorage.setItem("rg-list-sort", JSON.stringify(listSort)); } catch (_) { /* egal */ }
+        return renderList();
+      }
       const btn = e.target.closest("[data-act]");
       const tr = e.target.closest("tr[data-id]");
       if (!btn && tr) return openDetail(tr.dataset.id);

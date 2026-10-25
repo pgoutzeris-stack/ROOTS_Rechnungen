@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=23"></script>
-<script src="richtext.js?v=23"></script>
-<script src="einvoice.js?v=23"></script>
-<script src="layout.js?v=23"></script>
-<script src="designer.js?v=23"></script>
-<script src="pdf.js?v=23"></script>
-<script src="schematron.js?v=23"></script>
-<script src="facturx.js?v=23"></script>
-<script src="annex.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="ui.js?v=24"></script>
+<script src="richtext.js?v=24"></script>
+<script src="einvoice.js?v=24"></script>
+<script src="layout.js?v=24"></script>
+<script src="designer.js?v=24"></script>
+<script src="pdf.js?v=24"></script>
+<script src="schematron.js?v=24"></script>
+<script src="facturx.js?v=24"></script>
+<script src="annex.js?v=24"></script>
+<script src="app.js?v=24"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -526,6 +526,13 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .num-field{display:flex;align-items:center;gap:4px}
 .num-field input{flex:1;min-width:0}
 .num-field .icon-btn{flex-shrink:0;height:44px;width:40px}
+.sort{border:0;background:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.sort:hover{color:var(--brand)}
+.sort.on{color:var(--brand)}
+.sort.on::after{content:"\f0d7";font-family:"Font Awesome 6 Free";font-weight:900;font-size:.85em}
+.sort.on.asc::after{content:"\f0d8"}
+.sort-sep{margin:0 6px;opacity:.5}
+#invoice-rows td.mono,#invoice-rows td.num,#invoice-rows td:nth-child(2){white-space:nowrap}
 @media (max-width:1100px){.editor-grid,.editor-split{grid-template-columns:1fr}.sticky,.preview-pane{position:static}.preview-pane{height:70vh}}
 @media (max-width:760px){
   .dash-sidebar{display:none}
@@ -583,7 +590,7 @@ input:disabled{background:var(--surface);color:var(--muted)}
         <section data-panel="list">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Nr.</th><th>Datum</th><th>Kunde · Projekt</th><th>Steuerfall</th><th class="num">Brutto</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th><button class="sort" data-sort="number">Nr.</button></th><th><button class="sort" data-sort="date">Datum</button></th><th><button class="sort" data-sort="customer">Kunde</button><span class="sort-sep">·</span><button class="sort" data-sort="project">Projekt</button></th><th><button class="sort" data-sort="tax">Steuerfall</button></th><th class="num"><button class="sort" data-sort="gross">Brutto</button></th><th><button class="sort" data-sort="status">Status</button></th><th></th></tr></thead>
               <tbody id="invoice-rows"></tbody>
             </table>
           </div>
