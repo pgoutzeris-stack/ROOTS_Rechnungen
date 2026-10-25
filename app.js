@@ -693,7 +693,6 @@
               <label class="switch-head"><input type="checkbox" data-path="annex.on" ${annexOn(inv) ? "checked" : ""}><span class="switch"></span><h3><i class="fa-solid fa-paperclip"></i> Anlage</h3></label>
               <div class="card-actions ${annexOn(inv) ? "" : "hidden"}">
                 <button class="btn-ghost sm" data-act="annex-import"><i class="fa-solid fa-file-import"></i> Excel, Word, PDF</button>
-                <button class="btn-ghost sm" data-act="add-annex-row"><i class="fa-solid fa-plus"></i> Zeile</button>
               </div>
               <input type="file" id="annex-file" accept=".xlsx,.xlsm,.docx,.pdf,.png,.jpg,.jpeg" hidden>
             </div>
@@ -702,15 +701,15 @@
               ${input("annex.title", "Titel", { wide: true })}
               <div class="field wide"><span class="flabel">Text</span>${rtBar()}<div class="rt rt-area" contenteditable="true" spellcheck="true" data-rich="annex" data-placeholder="Text der Anlage">${RT.sanitize(annexHtml(inv.annex))}</div></div>
             </div>
-            <div class="lines">
-              ${(inv.annex.rows || []).map((r, i) => `
+            ${(inv.annex.rows || []).length ? `<div class="lines">
+              ${inv.annex.rows.map((r, i) => `
                 <div class="line-row annex-row">
                   <input data-path="annex.rows.${i}.label" value="${esc(r.label)}" placeholder="Bezeichnung">
                   <input data-path="annex.rows.${i}.amount" value="${esc(r.amount || "")}" placeholder="Betrag" class="num">
                   <label class="chk"><input type="checkbox" data-path="annex.rows.${i}.bold" ${r.bold ? "checked" : ""}> fett</label>
                   <button class="icon-btn" data-act="del-annex-row" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`).join("")}
-            </div>
+            </div>` : ""}
             ${(inv.annex.images || []).length ? `<div class="annex-shots">${inv.annex.images.map((im, i, all) => `
               <div class="annex-shot">
                 <div class="shot-thumb">${fileUrl(im.sha) ? `<img src="${fileUrl(im.sha)}" alt="">` : `<span class="spinner"></span>`}</div>
