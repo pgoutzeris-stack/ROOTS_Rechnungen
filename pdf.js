@@ -203,17 +203,26 @@
     const a = inv.annex || {};
     const rows = (a.rows || []).filter((r) => String(r.label || "").trim() || String(r.amount || "").trim());
     const images = (a.images || []).filter((im) => im && im.sha);
-    if (String(a.text || "").trim() || rows.length || images.length) {
+    const annexText = typeof a.html === "string" ? RT.layout(RT.parse(a.html), { R, B }, 9.5, CW) : null;
+    const hasContent = String(a.text || "").trim() || rows.length || images.length;
+    if (a.on === true || (a.on !== false && hasContent)) {
       p = newPage();
       y = H - 150;
       text(`${L.annex}: ${a.title || ""}`.trim(), ML, y, { size: 12, bold: true });
       mark("annex.title", ML, y, W - MR, y, 12);
       y -= 26;
       const textTop = y;
-      wrap(a.text, R, 9.5, CW).forEach((ln) => {
-        if (y < 100) { p = newPage(); y = H - 150; }
-        text(ln, ML, y); y -= 13;
-      });
+      if (annexText) {
+        annexText.forEach((ln) => {
+          if (y < 100) { p = newPage(); y = H - 150; }
+          RT.drawLine(p, ln, ML, y, 9.5, INK, { R, B }, PDFLib); y -= 13;
+        });
+      } else {
+        wrap(a.text, R, 9.5, CW).forEach((ln) => {
+          if (y < 100) { p = newPage(); y = H - 150; }
+          text(ln, ML, y); y -= 13;
+        });
+      }
       if (String(a.text || "").trim()) mark("annex.text", ML, textTop, W - MR, Math.min(textTop, y + 13));
       if (rows.length) {
         y -= 8;

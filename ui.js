@@ -142,7 +142,8 @@ window.RootsUI = (function () {
     const lib = await pdfjs();
     const doc = await lib.getDocument({ data: bytes, disableWorker: true, isEvalSupported: false }).promise;
     if (token !== renderToken) return;
-    const width = Math.max(320, container.clientWidth - 2);
+    const cs = getComputedStyle(container);
+    const width = Math.max(280, Math.floor(container.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0) - 2));
     const ratio = Math.min(2, window.devicePixelRatio || 1);
     const canvases = [];
     for (let n = 1; n <= doc.numPages; n++) {

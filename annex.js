@@ -76,6 +76,7 @@ window.RootsAnnex = (function () {
         <footer class="ax-foot">
           <span class="ax-sel"></span>
           <div class="ax-actions">
+            <button class="btn-secondary ax-all hidden"></button>
             <button class="btn-secondary ax-cancel">Abbrechen</button>
             <button class="btn-primary ax-ok" disabled><i class="fa-solid fa-crop-simple"></i> In die Anlage</button>
           </div>
@@ -111,24 +112,28 @@ window.RootsAnnex = (function () {
       el.querySelector(".ax-close").onclick = () => done(null);
       el.querySelector(".ax-cancel").onclick = () => done(null);
       const onSelect = (text) => { selLabel.textContent = text || ""; ok.disabled = !text; };
-      ok.onclick = async () => {
-        ok.disabled = true;
-        const prev = ok.innerHTML;
-        ok.innerHTML = `<span class="spinner"></span> Bild wird erzeugt`;
+      const all = el.querySelector(".ax-all");
+      const run = async (btn, fn) => {
+        ok.disabled = true; all.disabled = true;
+        const prev = btn.innerHTML;
+        btn.innerHTML = `<span class="spinner"></span> Bild wird erzeugt`;
         try {
-          const shot = await view.shot();
-          done({ ...shot, label: `${file.name} · ${shot.label}` });
+          const shots = [].concat(await fn());
+          done(shots.map((s) => ({ ...s, label: `${file.name} · ${s.label}` })));
         } catch (e) {
-          ok.innerHTML = prev;
-          ok.disabled = false;
+          btn.innerHTML = prev;
+          ok.disabled = false; all.disabled = false;
           selLabel.textContent = e.message;
         }
       };
+      ok.onclick = () => run(ok, () => view.shot());
+      all.onclick = () => run(all, () => view.all());
 
       (async () => {
         try {
           if (k.type === "excel") view = await excelView(buf, body, el.querySelector(".ax-tabs"), onSelect);
           else view = await pageView(k.type, buf, body, onSelect);
+          if (view.allLabel) { all.innerHTML = view.allLabel; all.classList.remove("hidden"); }
         } catch (e) {
           body.innerHTML = `<div class="ax-loading err"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e.message || e)}</div>`;
         }
@@ -323,6 +328,7 @@ window.RootsAnnex = (function () {
         const r = parseRange(typeof m === "string" ? m : m.range || m.tl + ":" + m.br);
         if (r) { merges.push(r); rows = Math.max(rows, r.r2 + 1); cols = Math.max(cols, r.c2 + 1); }
       });
+      const used = { r2: Math.min(Math.max(rows, 1), MAX_ROWS) - 1, c2: Math.min(Math.max(cols, 1), MAX_COLS) - 1 };
       rows = Math.min(Math.max(rows, 1) + 2, MAX_ROWS);
       cols = Math.min(Math.max(cols, 1) + 1, MAX_COLS);
       const master = new Map(), covered = new Set();
@@ -342,7 +348,13 @@ window.RootsAnnex = (function () {
         hiddenR[r] = !!row.hidden;
         rowH[r] = Math.round(((row.height || sheet.properties?.defaultRowHeight || 15) * 4) / 3);
       }
-      return { rows, cols, master, covered, colW, rowH, hiddenC, hiddenR };
+      // erste belegte Zeile und Spalte, damit leere Raender nicht ins Bild kommen
+      let r1 = used.r2, c1 = used.c2;
+      sheet.eachRow({ includeEmpty: false }, (row, rn) => row.eachCell({ includeEmpty: false }, (cell, cn) => {
+        if (cell.value !== null && cell.value !== undefined && cell.value !== "" || cell.fill?.pattern && cell.fill.pattern !== "none") { r1 = Math.min(r1, rn - 1); c1 = Math.min(c1, cn - 1); }
+      }));
+      merges.forEach((m) => { r1 = Math.min(r1, m.r1); c1 = Math.min(c1, m.c1); });
+      return { rows, cols, master, covered, colW, rowH, hiddenC, hiddenR, used: { r1: Math.max(0, r1), c1: Math.max(0, c1), r2: used.r2, c2: used.c2 } };
     }
 
     function cellHtml(r, c, withId) {
@@ -468,9 +480,9 @@ window.RootsAnnex = (function () {
     }
 
     /** Bereich ohne Koepfe und Gitternetz zeichnen, wie beim Drucken. */
-    async function shot() {
-      if (!sel) throw new Error("Kein Bereich gewählt.");
-      const s = sel;
+    async function shot(range) {
+      if (!range && !sel) throw new Error("Kein Bereich gewählt.");
+      const s = range || sel;
       const cols = [], rows = [];
       let w = 0;
       for (let c = s.c1; c <= s.c2; c++) if (!model.hiddenC[c]) { cols.push(`<col style="width:${model.colW[c]}px">`); w += model.colW[c]; }
@@ -488,14 +500,14 @@ window.RootsAnnex = (function () {
         const table = host.firstElementChild;
         const canvas = await window.html2canvas(table, { scale: SCALE, backgroundColor: "#ffffff", logging: false });
         const ref = `${colName(s.c1)}${s.r1 + 1}:${colName(s.c2)}${s.r2 + 1}`;
-        return await toResult(canvas, table.offsetWidth, table.offsetHeight, `${ws.name}!${ref}`);
+        return await toResults(canvas, table.offsetWidth, table.offsetHeight, `${ws.name}!${ref}`);
       } finally {
         host.remove();
       }
     }
 
     show(0);
-    return { shot };
+    return { shot, all: () => shot(model.used), allLabel: `<i class="fa-solid fa-table"></i> Ganzes Blatt` };
   }
 
   /* ------------------------------------------- Word, PDF, Bild (Seiten) --- */
@@ -647,7 +659,19 @@ window.RootsAnnex = (function () {
       return toResult(out, w, h, pages.length > 1 ? `Seite ${idx}` : "Ausschnitt");
     }
 
-    return { shot };
+    async function all() {
+      const out = [];
+      const keep = sel;
+      for (const page of pages) {
+        sel = { page, x: 0, y: 0, w: page.offsetWidth, h: page.offsetHeight };
+        out.push(await shot());
+      }
+      sel = keep;
+      draw();
+      return out.map((r, i) => ({ ...r, label: pages.length > 1 ? `Seite ${i + 1}` : "Ganze Seite" }));
+    }
+
+    return { shot, all, allLabel: type === "image" ? "" : `<i class="fa-regular fa-copy"></i> ${pages.length > 1 ? `Alle ${pages.length} Seiten` : "Ganze Seite"}` };
   }
 
   /* ----------------------------------------------------------- Ausgabe --- */
@@ -667,6 +691,24 @@ window.RootsAnnex = (function () {
       c = next;
     }
     throw new Error("Ausschnitt ist zu groß. Kleineren Bereich wählen.");
+  }
+
+  /** Sehr hohe Bereiche (ganzes Blatt) in Stuecke teilen, die je auf eine Anlagenseite passen. */
+  async function toResults(canvas, w, h, label) {
+    const MAX_RATIO = 1.15;           // Hoehe/Breite einer Anlagenseite
+    if (h / w <= MAX_RATIO * 1.1) return [await toResult(canvas, w, h, label)];
+    const sliceH = Math.floor(w * MAX_RATIO);
+    const k = canvas.height / h;
+    const parts = [];
+    for (let y = 0, n = 1; y < h; y += sliceH, n++) {
+      const hh = Math.min(sliceH, h - y);
+      const c = document.createElement("canvas");
+      c.width = canvas.width;
+      c.height = Math.round(hh * k);
+      c.getContext("2d").drawImage(canvas, 0, Math.round(y * k), c.width, c.height, 0, 0, c.width, c.height);
+      parts.push(await toResult(c, w, hh, `${label} (${n})`));
+    }
+    return parts;
   }
 
   async function sha256(bytes) {

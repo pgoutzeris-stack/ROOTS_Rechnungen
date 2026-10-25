@@ -193,6 +193,7 @@
     }
     if (!mode) return;
     const a = state.edit.annex;
+    a.on = true;
     if (mode === "file") {
       if (file.size > 5 * 1024 * 1024) return toast("Datei größer als 5 MB", "err");
       setBusy(true, "Datei wird gespeichert");
@@ -204,17 +205,19 @@
         setBusy(false);
       }
     } else {
-      const shot = await AX.capture(file);
-      if (!shot) return;
-      setBusy(true, "Ausschnitt wird gespeichert");
+      const shots = await AX.capture(file);
+      if (!shots || !shots.length) return;
+      setBusy(true, shots.length > 1 ? `${shots.length} Bilder werden gespeichert` : "Ausschnitt wird gespeichert");
       try {
-        const sha = await putFile(`${file.name.replace(/\.[^.]+$/, "")}_Ausschnitt.png`, shot.mime, shot.bytes);
         // Quelldatei mit ablegen, damit sich der Ausschnitt spaeter belegen laesst
         let source = null;
         if (k.type !== "image" && file.size <= 5 * 1024 * 1024) {
           source = await putFile(file.name, k.mime, new Uint8Array(await file.arrayBuffer())).catch(() => null);
         }
-        (a.images = a.images || []).push({ sha, w: shot.w, h: shot.h, label: shot.label, caption: "", source_sha: source });
+        for (const shot of shots) {
+          const sha = await putFile(`${file.name.replace(/\.[^.]+$/, "")}_Ausschnitt.png`, shot.mime, shot.bytes);
+          (a.images = a.images || []).push({ sha, w: shot.w, h: shot.h, label: shot.label, caption: "", source_sha: source });
+        }
       } finally {
         setBusy(false);
       }
@@ -369,7 +372,7 @@
       note: tpl.note || "",
       buyer: customer ? { name: customer.name, street: c.street || "", street2: c.street2 || "", zip: c.zip || "", city: c.city || "", country: c.country || "DE", vat_id: c.vat_id || "", vat_print: c.vat_print || "", hide_country: !!c.hide_country, email: c.email || "", contact: "" } : { name: "", street: "", street2: "", zip: "", city: "", country: "DE", vat_id: "", email: "", contact: "" },
       lines: tpl.lines.map((l) => ({ label: l.label, detail: "", html: RT.sanitize(RT.fromLine(l)), amount: "" })),
-      annex: JSON.parse(JSON.stringify({ title: "", text: "", rows: [], ...(tpl.annex || {}) })),
+      annex: JSON.parse(JSON.stringify({ title: "", text: "", rows: [], ...(tpl.annex || {}), on: false })),
       layout: tpl.layout && tpl.layout.elements?.length ? JSON.parse(JSON.stringify(tpl.layout)) : undefined,
       customer_id: customer?.id || null,
     };
@@ -473,6 +476,25 @@
     return `<label class="${cls}"><span class="flabel">${esc(label)}</span><input type="${type}" data-path="${path}" value="${esc(v)}" ${opts.placeholder ? `placeholder="${esc(opts.placeholder)}"` : ""} ${opts.mono ? 'class="mono"' : ""}></label>`;
   }
 
+  /** Anlage aktiv: ausdruecklich gesetzt oder (alte Entwuerfe) sobald Inhalt da ist. */
+  function annexOn(inv) {
+    const a = inv.annex || {};
+    if (typeof a.on === "boolean") return a.on;
+    return !!(String(a.text || "").trim() || (a.rows || []).length || (a.images || []).length || (a.files || []).length);
+  }
+  const annexHtml = (a) => (typeof a?.html === "string" ? a.html : RT.esc(a?.text || "").replace(/\n/g, "<br>"));
+  const rtBar = () => `
+            <div class="rt-bar" role="toolbar" aria-label="Formatierung">
+              <button type="button" data-rt="bold" title="Fett (⌘B)"><i class="fa-solid fa-bold"></i></button>
+              <button type="button" data-rt="italic" title="Kursiv (⌘I)"><i class="fa-solid fa-italic"></i></button>
+              <button type="button" data-rt="underline" title="Unterstrichen (⌘U)"><i class="fa-solid fa-underline"></i></button>
+              <hr>
+              <button type="button" data-rt="insertUnorderedList" title="Aufzählung"><i class="fa-solid fa-list-ul"></i></button>
+              <button type="button" data-rt="insertOrderedList" title="Nummerierung"><i class="fa-solid fa-list-ol"></i></button>
+              <hr>
+              <button type="button" data-rt="removeFormat" title="Formatierung entfernen"><i class="fa-solid fa-text-slash"></i></button>
+            </div>`;
+
   function renderEditor() {
     const inv = state.edit;
     if (!inv) return;
@@ -536,20 +558,11 @@
 
           <section class="card">
             <div class="card-head"><h3><i class="fa-solid fa-list"></i> Positionen</h3><button class="btn-ghost sm" data-act="add-line"><i class="fa-solid fa-plus"></i> Position</button></div>
-            <div class="rt-bar" role="toolbar" aria-label="Formatierung">
-              <button type="button" data-rt="bold" title="Fett (⌘B)"><i class="fa-solid fa-bold"></i></button>
-              <button type="button" data-rt="italic" title="Kursiv (⌘I)"><i class="fa-solid fa-italic"></i></button>
-              <button type="button" data-rt="underline" title="Unterstrichen (⌘U)"><i class="fa-solid fa-underline"></i></button>
-              <hr>
-              <button type="button" data-rt="insertUnorderedList" title="Aufzählung"><i class="fa-solid fa-list-ul"></i></button>
-              <button type="button" data-rt="insertOrderedList" title="Nummerierung"><i class="fa-solid fa-list-ol"></i></button>
-              <hr>
-              <button type="button" data-rt="removeFormat" title="Formatierung entfernen"><i class="fa-solid fa-text-slash"></i></button>
-            </div>
+            ${rtBar()}
             <div class="lines">
               ${inv.lines.map((l, i) => `
                 <div class="line-row rich-row">
-                  <div class="rt" contenteditable="true" spellcheck="true" data-rich="${i}" data-placeholder="Position">${RT.sanitize(RT.fromLine(l))}</div>
+                  <div class="rt" contenteditable="true" spellcheck="true" data-rich="lines.${i}" data-placeholder="Position">${RT.sanitize(RT.fromLine(l))}</div>
                   <input data-path="lines.${i}.amount" value="${esc(l.amount)}" placeholder="0,00" class="num">
                   <button class="icon-btn" data-act="del-line" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`).join("")}
@@ -559,16 +572,17 @@
 
           <section class="card annex-card" id="annex-card">
             <div class="card-head">
-              <h3><i class="fa-solid fa-paperclip"></i> Anlage</h3>
-              <div class="card-actions">
+              <label class="switch-head"><input type="checkbox" data-path="annex.on" ${annexOn(inv) ? "checked" : ""}><span class="switch"></span><h3><i class="fa-solid fa-paperclip"></i> Anlage</h3></label>
+              <div class="card-actions ${annexOn(inv) ? "" : "hidden"}">
                 <button class="btn-ghost sm" data-act="annex-import"><i class="fa-solid fa-file-import"></i> Excel, Word, PDF</button>
                 <button class="btn-ghost sm" data-act="add-annex-row"><i class="fa-solid fa-plus"></i> Zeile</button>
               </div>
               <input type="file" id="annex-file" accept=".xlsx,.xlsm,.docx,.pdf,.png,.jpg,.jpeg" hidden>
             </div>
+            <div class="annex-body ${annexOn(inv) ? "" : "hidden"}">
             <div class="fields">
               ${input("annex.title", "Titel", { wide: true })}
-              ${input("annex.text", "Text", { wide: true, area: true, rows: 5 })}
+              <div class="field wide"><span class="flabel">Text</span>${rtBar()}<div class="rt rt-area" contenteditable="true" spellcheck="true" data-rich="annex" data-placeholder="Text der Anlage">${RT.sanitize(annexHtml(inv.annex))}</div></div>
             </div>
             <div class="lines">
               ${(inv.annex.rows || []).map((r, i) => `
@@ -599,6 +613,7 @@
                 <small>${esc(fileSize(f.size || 0))} · im PDF eingebettet</small>
                 <button class="icon-btn" data-act="annex-file-del" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
               </div>`).join("")}</div>` : ""}
+            </div>
             <div class="annex-drop"><i class="fa-solid fa-file-import"></i> Datei hier ablegen</div>
           </section>
         </div>
@@ -1716,12 +1731,19 @@
     document.addEventListener("input", (e) => {
       const rt = e.target.closest?.("[data-rich]");
       if (rt && state.edit) {
-        const l = state.edit.lines[Number(rt.dataset.rich)];
-        if (!l) return;
-        l.html = RT.sanitize(rt.innerHTML);
-        l.label = E.lineText(l).name;
-        l.detail = "";
-        pendingFocus = `lines.${rt.dataset.rich}`;
+        const key = rt.dataset.rich;
+        if (key === "annex") {
+          state.edit.annex.html = RT.sanitize(rt.innerHTML);
+          state.edit.annex.text = RT.plain(state.edit.annex.html);
+          pendingFocus = "annex.text";
+        } else {
+          const l = state.edit.lines[Number(key.split(".")[1])];
+          if (!l) return;
+          l.html = RT.sanitize(rt.innerHTML);
+          l.label = E.lineText(l).name;
+          l.detail = "";
+          pendingFocus = key;
+        }
         scheduleHistory();
         scheduleAutosave();
         return updateLive();
@@ -1746,6 +1768,7 @@
         state.edit.buyer_logo = d.logo || "";
         return renderEditor();
       }
+      if (e.target.matches?.('[data-path="annex.on"]')) return renderEditor();
       const el = e.target.closest("select[data-path]");
       if (el && state.edit && (el.dataset.path === "lang" || el.dataset.path === "tax_case")) renderEditor();
     });
@@ -1784,7 +1807,7 @@
     const el = e.target.closest?.("[data-path], [data-rich]");
     if (!el || state.view !== "edit") return;
     clearTimeout(releaseTimer);
-    const key = el.dataset.rich !== undefined ? `lines.${el.dataset.rich}` : regionKey(el.dataset.path);
+    const key = el.dataset.rich !== undefined ? (el.dataset.rich === "annex" ? "annex.text" : el.dataset.rich) : regionKey(el.dataset.path);
     window.RootsUI.highlight($("#preview-pages"), state.regions?.[key]);
   });
 
@@ -1806,7 +1829,6 @@
       let on = false;
       if (inField && b.dataset.rt !== "removeFormat") { try { on = document.queryCommandState(b.dataset.rt); } catch (_) { on = false; } }
       b.classList.toggle("on", on);
-      b.disabled = !inField;
     });
   }
   document.addEventListener("selectionchange", updateRtBar);
