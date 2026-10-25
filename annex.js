@@ -8,7 +8,7 @@
  *   Word / PDF / Bild  Seiten untereinander, Ausschnitt per Rechteck aufziehen.
  * Ergebnis: { bytes: Uint8Array (PNG), w, h (CSS-Pixel), label } oder null.
  *
- * Die Bibliotheken (ExcelJS, JSZip + docx-preview, html2canvas) werden erst
+ * Die Bibliotheken (ExcelJS, JSZip + docx-preview) werden erst
  * beim ersten Import geladen.
  */
 window.RootsAnnex = (function () {
@@ -55,8 +55,8 @@ window.RootsAnnex = (function () {
     return loaded[src];
   }
   const libs = {
-    excel: () => Promise.all([script("vendor/exceljs.min.js"), script("vendor/html2canvas.min.js")]),
-    word: async () => { await script("vendor/jszip.min.js"); await Promise.all([script("vendor/docx-preview.min.js"), script("vendor/html2canvas.min.js")]); },
+    excel: () => script("vendor/exceljs.min.js"),
+    word: async () => { await script("vendor/jszip.min.js"); await script("vendor/docx-preview.min.js"); },
     zip: () => script("vendor/jszip.min.js"),
   };
 
@@ -498,7 +498,7 @@ window.RootsAnnex = (function () {
       document.body.appendChild(host);
       try {
         const table = host.firstElementChild;
-        const canvas = await window.html2canvas(table, { scale: SCALE, backgroundColor: "#ffffff", logging: false });
+        const canvas = await paint(table, SCALE);
         const ref = `${colName(s.c1)}${s.r1 + 1}:${colName(s.c2)}${s.r2 + 1}`;
         return await toResults(canvas, table.offsetWidth, table.offsetHeight, `${ws.name}!${ref}`);
       } finally {
@@ -642,7 +642,7 @@ window.RootsAnnex = (function () {
       else {
         page.querySelector(".ax-crop").classList.add("hidden");
         try {
-          src = await window.html2canvas(page, { scale: SCALE, backgroundColor: "#ffffff", logging: false, ignoreElements: (n) => n.classList?.contains("ax-crop") });
+          src = await paint(page, SCALE);
         } finally {
           page.querySelector(".ax-crop").classList.remove("hidden");
         }
@@ -672,6 +672,96 @@ window.RootsAnnex = (function () {
     }
 
     return { shot, all, allLabel: type === "image" ? "" : `<i class="fa-regular fa-copy"></i> ${pages.length > 1 ? `Alle ${pages.length} Seiten` : "Ganze Seite"}` };
+  }
+
+  /* ------------------------------------------------------------ Zeichnen --- */
+
+  /**
+   * Zeichnet einen DOM-Teilbaum anhand seines Layouts auf ein Canvas: Flaechen,
+   * Rahmen, Bilder und Text Wort fuer Wort an der Stelle, die der Browser
+   * berechnet hat. Ohne Kopie in einem iframe, deshalb auch im abgeschotteten
+   * Intranet-Rahmen (sandbox ohne allow-same-origin) moeglich.
+   */
+  async function paint(root, scale) {
+    try { await document.fonts?.ready; } catch (_) { /* egal */ }
+    const base = root.getBoundingClientRect();
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(base.width * scale));
+    canvas.height = Math.max(1, Math.round(base.height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(scale, scale);
+    ctx.translate(-base.left, -base.top);
+    const clear = (c) => !c || c === "transparent" || /rgba\([^)]*,\s*0\)$/.test(c);
+
+    const clipOf = (el) => {
+      for (let n = el; n && n !== root.parentElement; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        if (cs.overflow !== "visible" || cs.overflowX !== "visible") return n.getBoundingClientRect();
+      }
+      return null;
+    };
+
+    function text(node) {
+      const s = node.textContent;
+      if (!s || !s.trim()) return;
+      const el = node.parentElement;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.color === "transparent") return;
+      ctx.save();
+      const clip = clipOf(el);
+      if (clip) { ctx.beginPath(); ctx.rect(clip.left, clip.top, clip.width, clip.height); ctx.clip(); }
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      ctx.fillStyle = cs.color;
+      ctx.textBaseline = "alphabetic";
+      const m = ctx.measureText("Hg");
+      const asc = m.fontBoundingBoxAscent ?? parseFloat(cs.fontSize) * 0.8;
+      const desc = m.fontBoundingBoxDescent ?? parseFloat(cs.fontSize) * 0.2;
+      const under = /underline/.test(cs.textDecorationLine || cs.textDecoration);
+      const range = document.createRange();
+      const re = /\S+/g;
+      let w;
+      while ((w = re.exec(s))) {
+        range.setStart(node, w.index);
+        range.setEnd(node, w.index + w[0].length);
+        const rects = range.getClientRects();
+        if (!rects.length) continue;
+        const r = rects[0];
+        const y = r.top + (r.height - (asc + desc)) / 2 + asc;
+        ctx.fillText(w[0], r.left, y);
+        if (under) ctx.fillRect(r.left, y + desc * 0.35, r.width, Math.max(0.6, parseFloat(cs.fontSize) / 16));
+      }
+      ctx.restore();
+    }
+
+    function walk(el) {
+      if (el.classList?.contains("ax-crop")) return;
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") return;
+      const r = el.getBoundingClientRect();
+      if (!clear(cs.backgroundColor)) { ctx.fillStyle = cs.backgroundColor; ctx.fillRect(r.left, r.top, r.width, r.height); }
+      if ((el.tagName === "IMG" && el.complete && el.naturalWidth) || el.tagName === "CANVAS") {
+        try { ctx.drawImage(el, r.left, r.top, r.width, r.height); } catch (_) { /* Bild nicht lesbar */ }
+      }
+      for (const n of el.childNodes) {
+        if (n.nodeType === 3) text(n);
+        else if (n.nodeType === 1) walk(n);
+      }
+      for (const [side, x, y, w, h] of [
+        ["Top", r.left, r.top, r.width, null], ["Bottom", r.left, r.bottom, r.width, null],
+        ["Left", r.left, r.top, null, r.height], ["Right", r.right, r.top, null, r.height],
+      ]) {
+        const bw = parseFloat(cs[`border${side}Width`]);
+        if (!bw || cs[`border${side}Style`] === "none" || clear(cs[`border${side}Color`])) continue;
+        ctx.fillStyle = cs[`border${side}Color`];
+        if (w !== null) ctx.fillRect(x, side === "Top" ? y : y - bw, w, bw);
+        else ctx.fillRect(side === "Left" ? x : x - bw, y, bw, h);
+      }
+    }
+
+    walk(root);
+    return canvas;
   }
 
   /* ----------------------------------------------------------- Ausgabe --- */
