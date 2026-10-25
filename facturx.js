@@ -76,7 +76,17 @@ def rg_xsd(xml_str):
     });
   }
 
+  /** Pyodide vom CDN; bei Netzfehler einmal neu versuchen. */
   function load(onStatus) {
+    if (ready) return ready;
+    return load1(onStatus).catch(async (e) => {
+      onStatus?.("Prüfmodul wird erneut geladen");
+      document.querySelectorAll('script[src*="pyodide.js"]').forEach((s) => { if (!window.loadPyodide) s.remove(); });
+      await new Promise((r) => setTimeout(r, 1500));
+      return load1(onStatus);
+    });
+  }
+  function load1(onStatus) {
     if (ready) return ready;
     ready = (async () => {
       onStatus?.("Prüfmodul wird geladen");

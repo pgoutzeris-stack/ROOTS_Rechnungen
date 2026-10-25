@@ -33,14 +33,25 @@
 
   /* --------------------------------------------------------------- Broker --- */
 
+  /** Lesende Anfragen duerfen bei Netz- oder Zeitfehlern wiederholt werden. */
+  const SAFE_OPS = new Set(["context", "list", "get", "pdf", "customers", "templates", "sequences", "file_get", "journal", "journal_all", "journal_entry", "verify"]);
+  const TRANSIENT = /Failed to fetch|NetworkError|timeout|Zeitüberschreitung|Zeitlimit|nicht erreichbar|abgelaufen|504|503|502/i;
+
   async function api(op, payload = {}) {
     const request = window.RootsUserBridge?.request;
     if (!request) throw new Error("Die Intranet-Brücke ist nicht geladen.");
-    try {
-      return await request("rechnungen", { op, ...payload }, 120000);
-    } catch (e) {
-      throw new Error(translate(e?.message || String(e)));
+    const tries = SAFE_OPS.has(op) ? 3 : 1;
+    let last;
+    for (let i = 0; i < tries; i++) {
+      try {
+        return await request("rechnungen", { op, ...payload }, 120000);
+      } catch (e) {
+        last = e;
+        if (i === tries - 1 || !TRANSIENT.test(e?.message || "")) break;
+        await new Promise((r) => setTimeout(r, 800 * (i + 1) * (i + 1)));
+      }
     }
+    throw new Error(translate(last?.message || String(last)));
   }
 
   function translate(raw) {
@@ -104,16 +115,78 @@
     try { state.sequences = (await api("sequences")).sequences || []; renderVatBanner(); } catch (_) { /* naechster Versuch beim Laden */ }
   }
 
-  function download(bytes, name, type) {
-    const blob = new Blob([bytes], { type });
-    if (window.RootsUserBridge?.downloadBlob) window.RootsUserBridge.downloadBlob(blob, name);
-    else {
+  function directDownload(blob, name) {
+    try {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = name;
+      document.body.appendChild(a);
       a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 2000);
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
+
+  /**
+   * Download mit Rueckmeldung. Weg 1: ueber das Intranet (quittiert). Lehnt es
+   * ab oder antwortet nicht, startet Weg 2 automatisch direkt im Tool. Scheitert
+   * auch der, bietet ein Dialog Wiederholen bzw. Kopieren an.
+   */
+  async function download(bytes, name, type) {
+    const blob = new Blob([bytes], { type });
+    const B = window.RootsUserBridge;
+    let res = { ok: false, reason: "" };
+    if (B?.downloadBlob) {
+      try {
+        const r = await B.downloadBlob(blob, name);
+        res = r === undefined ? { ok: true } : r;   // aeltere Bruecke ohne Quittung
+      } catch (e) {
+        res = { ok: false, reason: e.message };
+      }
+    }
+    if (res.ok) return true;
+    if (directDownload(blob, name)) {
+      toast(`${name} über Ersatzweg gespeichert`);
+      console.warn("[rechnungen] Download über Intranet fehlgeschlagen:", res.reason || res.via);
+      return true;
+    }
+    return downloadRescue(bytes, name, type, res.reason);
+  }
+
+  function copyText(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    ta.remove();
+    return ok;
+  }
+
+  async function downloadRescue(bytes, name, type, reason) {
+    const isText = /xml|csv|json|text/.test(type);
+    const act = await showDialog({
+      icon: "fa-triangle-exclamation", tone: "bad",
+      title: "Download nicht möglich",
+      html: `<p class="mono">${esc(name)}</p>${reason ? `<p class="cell-sub">${esc(reason)}</p>` : ""}`,
+      actions: [
+        { label: "Schließen", value: null },
+        ...(isText ? [{ label: "Inhalt kopieren", value: "copy" }] : []),
+        { label: "Erneut versuchen", value: "retry", primary: true },
+      ],
+    });
+    if (act === "retry") return download(bytes, name, type);
+    if (act === "copy") {
+      const ok = copyText(new TextDecoder().decode(bytes));
+      toast(ok ? "In die Zwischenablage kopiert" : "Kopieren nicht möglich", ok ? "ok" : "err");
+      return ok;
+    }
+    return false;
   }
 
   function openExternal(url) {
@@ -205,7 +278,24 @@
         setBusy(false);
       }
     } else {
-      const shots = await AX.capture(file);
+      let shots;
+      try {
+        shots = await AX.capture(file);
+      } catch (e) {
+        document.querySelector(".ax-overlay")?.remove();
+        const alt = await showDialog({
+          icon: "fa-triangle-exclamation", tone: "bad",
+          title: "Datei lässt sich nicht darstellen",
+          html: `<p class="cell-sub">${esc(e.message || e)}</p>`,
+          actions: [{ label: "Abbrechen", value: null }, { label: "Nur Datei anhängen", value: "file", primary: true }],
+        });
+        if (alt !== "file") return;
+        if (file.size > 5 * 1024 * 1024) return toast("Datei größer als 5 MB", "err");
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const sha = await putFile(file.name, k.mime, bytes);
+        (a.files = a.files || []).push({ sha, name: file.name, mime: k.mime, size: bytes.length });
+        renderEditor(); commitHistory(); return scheduleAutosave();
+      }
       if (!shots || !shots.length) return;
       setBusy(true, shots.length > 1 ? `${shots.length} Bilder werden gespeichert` : "Ausschnitt wird gespeichert");
       try {
@@ -1801,6 +1891,15 @@
     $("#cust-form").addEventListener("submit", (e) => { e.preventDefault(); saveCustomer(e.target).catch((err) => toast(err.message, "err")); });
     $("#settings-form").addEventListener("submit", (e) => { e.preventDefault(); saveSettings(e.target).catch((err) => toast(err.message, "err")); });
   }
+
+  /* Kundenlogo nicht ladbar: Monogramm statt leerer Kachel */
+  document.addEventListener("error", (e) => {
+    const img = e.target;
+    if (img?.tagName !== "IMG" || !img.closest(".cust-logo")) return;
+    const box = img.closest(".cust-logo");
+    const name = box.closest("[data-pick-customer], tr, .cust-card")?.querySelector(".cust-name, .cell-main")?.textContent || "";
+    box.innerHTML = `<span class="monogram">${esc(window.RootsUI.monogram(name))}</span>`;
+  }, true);
 
   let releaseTimer = null;
   document.addEventListener("focusin", (e) => {

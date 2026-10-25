@@ -43,6 +43,9 @@ window.RootsAnnex = (function () {
 
   const loaded = {};
   function script(src) {
+    return load1(src).catch(() => { delete loaded[src]; return new Promise((r) => setTimeout(r, 1000)).then(() => load1(src)); });
+  }
+  function load1(src) {
     if (!loaded[src]) {
       loaded[src] = new Promise((resolve, reject) => {
         const s = document.createElement("script");
@@ -96,7 +99,7 @@ window.RootsAnnex = (function () {
     const ok = el.querySelector(".ax-ok");
     const selLabel = el.querySelector(".ax-sel");
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let view = null;
       const done = (v) => {
         document.removeEventListener("keydown", onKey, true);
@@ -135,7 +138,9 @@ window.RootsAnnex = (function () {
           else view = await pageView(k.type, buf, body, onSelect);
           if (view.allLabel) { all.innerHTML = view.allLabel; all.classList.remove("hidden"); }
         } catch (e) {
-          body.innerHTML = `<div class="ax-loading err"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(e.message || e)}</div>`;
+          document.removeEventListener("keydown", onKey, true);
+          el.remove();
+          reject(e);
         }
       })();
     });
