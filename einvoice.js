@@ -93,7 +93,12 @@
       "</ram:PostalTradeAddress>";
   }
 
-  function buildXml(inv, seller) {
+  /** BT-125 erlaubt nur diese MIME-Typen (EN 16931, BR-CL-24). Word bleibt nur im PDF. */
+  const XML_ATTACH_MIME = ["application/pdf", "image/png", "image/jpeg", "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.oasis.opendocument.spreadsheet"];
+
+  /** attachments: [{ name, mime, b64 }] als BG-24 (Zusatzdokumente) ins XML. */
+  function buildXml(inv, seller, attachments) {
     const tc = TAX_CASES[inv.tax_case] || TAX_CASES.S19;
     const t = totals(inv);
     const b = inv.buyer || {};
@@ -173,6 +178,9 @@
       "<rsm:SupplyChainTradeTransaction>" + lineXml +
       "<ram:ApplicableHeaderTradeAgreement>" + tag("ram:BuyerReference", inv.buyer_reference) + sellerXml + buyerXml +
       (inv.po ? `<ram:BuyerOrderReferencedDocument>${tag("ram:IssuerAssignedID", inv.po)}</ram:BuyerOrderReferencedDocument>` : "") +
+      (attachments || []).filter((a) => XML_ATTACH_MIME.includes(a.mime)).map((a, i) =>
+        "<ram:AdditionalReferencedDocument>" + tag("ram:IssuerAssignedID", `Anlage ${i + 1}`) + "<ram:TypeCode>916</ram:TypeCode>" + tag("ram:Name", a.name) +
+        `<ram:AttachmentBinaryObject mimeCode="${esc(a.mime)}" filename="${esc(a.name)}">${a.b64}</ram:AttachmentBinaryObject></ram:AdditionalReferencedDocument>`).join("") +
       "</ram:ApplicableHeaderTradeAgreement>" +
       "<ram:ApplicableHeaderTradeDelivery/>" +
       "<ram:ApplicableHeaderTradeSettlement>" +
@@ -261,7 +269,7 @@
       if (!Number.isFinite(t.lines[i])) err("BR-27", `lines.${i}.amount`, `Position ${i + 1}: Betrag ist keine Zahl.`);
       else if (t.lines[i] < 0) err("BR-27", `lines.${i}.amount`, `Position ${i + 1}: negativer Betrag. Gutschriften laufen über Storno.`);
     });
-    if (t.gross <= 0) err("BR-CO-15", "lines", "Rechnungsbetrag ist null.");
+    if (t.gross === 0 && lines.length && t.lines.every(Number.isFinite)) warn("BR-CO-15", "lines", "Rechnungsbetrag ist 0,00 €.");
 
     if (tc && tc.category === "AE") {
       if (!vatOk(seller.vat_id)) err("BR-AE-02", "seller.vat_id", "Reverse Charge braucht die USt-IdNr. von ROOTS (Stammdaten).");
@@ -283,5 +291,5 @@
     return out;
   }
 
-  return { PROFILE, TAX_CASES, EU, toCents, dec, money, totals, buildXml, precheck, fmtDate, ibanOk, vatOk };
+  return { XML_ATTACH_MIME, PROFILE, TAX_CASES, EU, toCents, dec, money, totals, buildXml, precheck, fmtDate, ibanOk, vatOk };
 });

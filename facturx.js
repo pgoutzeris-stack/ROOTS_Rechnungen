@@ -22,11 +22,16 @@ import sys, types, base64, json
 sys.modules.setdefault("requests", types.ModuleType("requests"))
 from facturx import generate_from_binary, xml_check_xsd, get_xml_from_pdf
 import facturx as _fx
+import mimetypes
+# Pyodide kennt die Office-Typen nicht; ohne sie landet application/octet-stream als /Subtype im PDF
+mimetypes.add_type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx")
+mimetypes.add_type("application/vnd.ms-excel.sheet.macroEnabled.12", ".xlsm")
+mimetypes.add_type("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx")
 
 _fx_mod = __import__("facturx.facturx", fromlist=["CREATOR"])
 _fx_mod.CREATOR = "ROOTS Rechnungen"
 
-def rg_build(pdf_b64, xml_str, lang, meta_json="{}"):
+def rg_build(pdf_b64, xml_str, lang, meta_json="{}", att_json="[]"):
     res = {"xsd": "failed", "roundtrip": "failed", "lib": "factur-x " + getattr(_fx, "__version__", "7.6")}
     pdf = base64.b64decode(pdf_b64)
     xml = xml_str.encode("utf-8")
@@ -38,7 +43,10 @@ def rg_build(pdf_b64, xml_str, lang, meta_json="{}"):
         return json.dumps(res)
     meta = json.loads(meta_json or "{}")
     pdf_metadata = {k: meta[k] for k in ("author", "title", "subject", "keywords") if meta.get(k)} or None
-    out = generate_from_binary(pdf, xml, flavor="factur-x", level="en16931", check_xsd=False, lang=lang, xmp_compression=False, pdf_metadata=pdf_metadata)
+    attachments = {}
+    for a in json.loads(att_json or "[]"):
+        attachments[a["name"]] = {"filedata": base64.b64decode(a["b64"]), "description": a.get("description") or a["name"], "afrelationship": "supplement"}
+    out = generate_from_binary(pdf, xml, flavor="factur-x", level="en16931", check_xsd=False, lang=lang, xmp_compression=False, pdf_metadata=pdf_metadata, attachments=attachments or None)
     fn, back = get_xml_from_pdf(out, check_xsd=True)
     if fn == "factur-x.xml" and back == xml:
         res["roundtrip"] = "passed"
@@ -89,12 +97,14 @@ def rg_xsd(xml_str):
     return ready;
   }
 
-  async function build(pdfBytes, xml, lang, onStatus, meta) {
+  /** attachments: [{ name, bytes, description }] als weitere Dateien im PDF/A-3 (AFRelationship Supplement). */
+  async function build(pdfBytes, xml, lang, onStatus, meta, attachments) {
     const py = await load(onStatus);
     onStatus?.("XSD-Prüfung und Einbettung");
     const fn = py.globals.get("rg_build");
     try {
-      return JSON.parse(fn(bytesToBase64(pdfBytes), xml, lang, JSON.stringify(meta || {})));
+      const att = (attachments || []).map((a) => ({ name: a.name, description: a.description || a.name, b64: bytesToBase64(a.bytes) }));
+      return JSON.parse(fn(bytesToBase64(pdfBytes), xml, lang, JSON.stringify(meta || {}), JSON.stringify(att)));
     } finally {
       fn.destroy();
     }

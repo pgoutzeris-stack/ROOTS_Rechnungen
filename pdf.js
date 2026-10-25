@@ -201,7 +201,8 @@
     /* ---------------- Anlage */
     const a = inv.annex || {};
     const rows = (a.rows || []).filter((r) => String(r.label || "").trim() || String(r.amount || "").trim());
-    if (String(a.text || "").trim() || rows.length) {
+    const images = (a.images || []).filter((im) => im && im.sha);
+    if (String(a.text || "").trim() || rows.length || images.length) {
       p = newPage();
       y = H - 150;
       text(`${L.annex}: ${a.title || ""}`.trim(), ML, y, { size: 12, bold: true });
@@ -226,6 +227,35 @@
           p.drawLine({ start: { x: ML, y }, end: { x: W - MR, y }, thickness: 0.4, color: LINE });
           y -= 11;
         });
+      }
+      /* Ausschnitte aus Excel, Word, PDF: volle Satzbreite hoechstens, nie hochskaliert */
+      for (const im of images) {
+        const idx = (a.images || []).indexOf(im);
+        const bytes = opts.files && opts.files.get(im.sha);
+        const natW = (Number(im.w) || 600) * 0.75, natH = (Number(im.h) || 300) * 0.75;   // CSS-Pixel -> pt
+        const maxH = H - 150 - 100;
+        let w = Math.min(CW, natW), h = (natH * w) / natW;
+        if (h > maxH) { w = (w * maxH) / h; h = maxH; }
+        const caption = String(im.caption || "").trim();
+        const need = h + (caption ? 18 : 0) + 14;
+        if (y - need < 100) { p = newPage(); y = H - 150; }
+        y -= 6;
+        if (bytes) {
+          const img = bytes[0] === 0x89 ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+          p.drawImage(img, { x: ML, y: y - h, width: w, height: h });
+        } else if (opts.final) {
+          throw new Error(`Anlage-Bild ${idx + 1} fehlt.`);
+        } else {
+          p.drawRectangle({ x: ML, y: y - h, width: w, height: h, color: rgb(0.95, 0.96, 0.98) });
+        }
+        mark(`annex.images.${idx}`, ML, y - 9.5, ML + w, y - h + 4.3);
+        y -= h;
+        if (caption) {
+          y -= 13;
+          wrap(caption, R, 8.5, CW).forEach((ln, j) => { if (j < 3) { text(ln, ML, y, { size: 8.5, color: MUTED }); y -= 11; } });
+          y += 11;
+        }
+        y -= 18;
       }
     }
 

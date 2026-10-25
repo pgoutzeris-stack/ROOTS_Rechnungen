@@ -136,6 +136,105 @@
     return assetsPromise;
   }
 
+  /* ------------------------------------------------------ Anlage-Dateien --- */
+
+  /** sha256 -> Bytes. Bilder und angehaengte Dateien liegen inhaltsadressiert in rg_files. */
+  const files = new Map();
+  const fileUrls = new Map();
+
+  function fileUrl(sha) {
+    if (!fileUrls.has(sha) && files.has(sha)) fileUrls.set(sha, URL.createObjectURL(new Blob([files.get(sha)])));
+    return fileUrls.get(sha) || "";
+  }
+
+  async function putFile(name, mime, bytes) {
+    const local = await window.RootsAnnex.sha256(bytes);
+    if (!files.has(local)) {
+      const res = await api("file_put", { name, mime, base64: window.RootsFacturX.bytesToBase64(bytes) });
+      if (res.sha256 !== local) throw new Error("Die Datei kam verändert beim Server an.");
+      files.set(local, bytes);
+    }
+    return local;
+  }
+
+  function annexShas(inv) {
+    const a = inv?.annex || {};
+    return [...(a.images || []), ...(a.files || [])].map((x) => x && x.sha).filter(Boolean);
+  }
+
+  /** Fehlende Anlagen nachladen und gegen ihren Hash pruefen. */
+  async function ensureFiles(inv) {
+    const missing = [...new Set(annexShas(inv))].filter((sha) => !files.has(sha));
+    await Promise.all(missing.map(async (sha) => {
+      const res = await api("file_get", { sha });
+      const bytes = window.RootsFacturX.base64ToBytes(res.base64);
+      if ((await window.RootsAnnex.sha256(bytes)) !== sha) throw new Error(`Anlage ${res.name || ""} ist beschädigt.`);
+      files.set(sha, bytes);
+    }));
+  }
+
+  const fileSize = (n) => (n >= 1048576 ? `${(n / 1048576).toLocaleString("de-DE", { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  const fileIcon = (name) => (/\.xls[xm]?$/i.test(name) ? "fa-file-excel" : /\.docx?$/i.test(name) ? "fa-file-word" : /\.pdf$/i.test(name) ? "fa-file-pdf" : /\.(png|jpe?g)$/i.test(name) ? "fa-file-image" : "fa-file");
+
+  async function importAnnex(file) {
+    if (!state.edit) return;
+    const AX = window.RootsAnnex;
+    const k = AX.kind(file);
+    if (k.type === "old" || k.type === "unknown") return toast(k.hint, "err");
+    let mode = "shot";
+    if (k.type !== "image") {
+      mode = await showDialog({
+        icon: "fa-crop-simple", tone: "ok",
+        title: "Ausschnitt als Bild übernehmen?",
+        html: `<div class="import-file"><i class="fa-regular ${fileIcon(file.name)}"></i><span>${esc(file.name)}</span><small>${esc(fileSize(file.size))}</small></div>`,
+        actions: [{ label: "Abbrechen", value: null }, { label: "Nur Datei anhängen", value: "file" }, { label: "Ausschnitt wählen", value: "shot", primary: true }],
+      });
+    }
+    if (!mode) return;
+    const a = state.edit.annex;
+    if (mode === "file") {
+      if (file.size > 5 * 1024 * 1024) return toast("Datei größer als 5 MB", "err");
+      setBusy(true, "Datei wird gespeichert");
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const sha = await putFile(file.name, k.mime, bytes);
+        (a.files = a.files || []).push({ sha, name: file.name, mime: k.mime, size: bytes.length });
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      const shot = await AX.capture(file);
+      if (!shot) return;
+      setBusy(true, "Ausschnitt wird gespeichert");
+      try {
+        const sha = await putFile(`${file.name.replace(/\.[^.]+$/, "")}_Ausschnitt.png`, shot.mime, shot.bytes);
+        // Quelldatei mit ablegen, damit sich der Ausschnitt spaeter belegen laesst
+        let source = null;
+        if (k.type !== "image" && file.size <= 5 * 1024 * 1024) {
+          source = await putFile(file.name, k.mime, new Uint8Array(await file.arrayBuffer())).catch(() => null);
+        }
+        (a.images = a.images || []).push({ sha, w: shot.w, h: shot.h, label: shot.label, caption: "", source_sha: source });
+      } finally {
+        setBusy(false);
+      }
+    }
+    renderEditor();
+    commitHistory();
+    scheduleAutosave();
+  }
+
+  function attachmentsOf(inv) {
+    const used = new Set();
+    return (inv.annex?.files || []).map((f) => {
+      let name = f.name || "Anlage";
+      for (let i = 2; used.has(name.toLowerCase()); i++) name = f.name.replace(/(\.[^.]+)?$/, ` (${i})$1`);
+      used.add(name.toLowerCase());
+      const bytes = files.get(f.sha);
+      if (!bytes) throw new Error(`Anlage ${f.name} fehlt.`);
+      return { name, bytes, mime: f.mime, description: f.name };
+    });
+  }
+
   /* ----------------------------------------------------------------- Boot --- */
 
   async function boot() {
@@ -385,6 +484,7 @@
           <span id="save-state" class="save-state"></span>
           <button class="icon-btn hist-btn" id="btn-undo" data-act="undo" title="Rückgängig (⌘Z)"><i class="fa-solid fa-rotate-left"></i></button>
           <button class="icon-btn hist-btn" id="btn-redo" data-act="redo" title="Wiederholen (⇧⌘Z)"><i class="fa-solid fa-rotate-right"></i></button>
+          ${inv.id ? `<button class="icon-btn hist-btn" data-act="journal" title="Verlauf"><i class="fa-solid fa-clock-rotate-left"></i></button>` : ""}
           ${inv.id && !inv.number ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
           <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-download"></i> Entwurf</button>
           <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
@@ -444,8 +544,15 @@
             <div class="totals" id="totals"></div>
           </section>
 
-          <section class="card">
-            <div class="card-head"><h3><i class="fa-solid fa-paperclip"></i> Anlage</h3><button class="btn-ghost sm" data-act="add-annex-row"><i class="fa-solid fa-plus"></i> Zeile</button></div>
+          <section class="card annex-card" id="annex-card">
+            <div class="card-head">
+              <h3><i class="fa-solid fa-paperclip"></i> Anlage</h3>
+              <div class="card-actions">
+                <button class="btn-ghost sm" data-act="annex-import"><i class="fa-solid fa-file-import"></i> Excel, Word, PDF</button>
+                <button class="btn-ghost sm" data-act="add-annex-row"><i class="fa-solid fa-plus"></i> Zeile</button>
+              </div>
+              <input type="file" id="annex-file" accept=".xlsx,.xlsm,.docx,.pdf,.png,.jpg,.jpeg" hidden>
+            </div>
             <div class="fields">
               ${input("annex.title", "Titel", { wide: true })}
               ${input("annex.text", "Text", { wide: true, area: true, rows: 5 })}
@@ -459,6 +566,27 @@
                   <button class="icon-btn" data-act="del-annex-row" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`).join("")}
             </div>
+            ${(inv.annex.images || []).length ? `<div class="annex-shots">${inv.annex.images.map((im, i, all) => `
+              <div class="annex-shot">
+                <div class="shot-thumb">${fileUrl(im.sha) ? `<img src="${fileUrl(im.sha)}" alt="">` : `<span class="spinner"></span>`}</div>
+                <div class="shot-meta">
+                  <span class="shot-src" title="${esc(im.label)}">${esc(im.label)}</span>
+                  <input data-path="annex.images.${i}.caption" value="${esc(im.caption || "")}" placeholder="Bildunterschrift">
+                </div>
+                <div class="shot-actions">
+                  <button class="icon-btn" data-act="annex-img-move" data-i="${i}" data-d="-1" title="Nach oben" ${i === 0 ? "disabled" : ""}><i class="fa-solid fa-arrow-up"></i></button>
+                  <button class="icon-btn" data-act="annex-img-move" data-i="${i}" data-d="1" title="Nach unten" ${i === all.length - 1 ? "disabled" : ""}><i class="fa-solid fa-arrow-down"></i></button>
+                  <button class="icon-btn" data-act="annex-img-del" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+              </div>`).join("")}</div>` : ""}
+            ${(inv.annex.files || []).length ? `<div class="annex-files">${inv.annex.files.map((f, i) => `
+              <div class="annex-file">
+                <i class="fa-regular ${fileIcon(f.name)}"></i>
+                <span>${esc(f.name)}</span>
+                <small>${esc(fileSize(f.size || 0))} · im PDF eingebettet</small>
+                <button class="icon-btn" data-act="annex-file-del" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
+              </div>`).join("")}</div>` : ""}
+            <div class="annex-drop"><i class="fa-solid fa-file-import"></i> Datei hier ablegen</div>
           </section>
         </div>
         <div class="preview-pane">
@@ -569,7 +697,7 @@
       if (!box || !state.edit) return;
       try {
         const regions = {};
-        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions });
+        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions, files });
         const pages = await window.RootsUI.renderPdf(pdf, box);
         if (pages) {
           state.regions = regions;
@@ -670,7 +798,9 @@
   /** XML bauen, Schematron, PDF, XSD und Einbettung. Liefert { ok, xml, fx, schematron } oder { ok:false, items }. */
   async function buildAll(inv, seller) {
     try {
-      const xml = E.buildXml(inv, seller);
+      await ensureFiles(inv);
+      const attachments = attachmentsOf(inv);
+      const xml = E.buildXml(inv, seller, attachments.map((a) => ({ name: a.name, mime: a.mime, b64: window.RootsFacturX.bytesToBase64(a.bytes) })));
       const schematron = await window.RootsSchematron.validate(xml);
       if (!schematron.passed) return { ok: false, items: schematron.errors.map((e) => ({ level: "error", rule: e.id, text: e.text })) };
       setBusy(true, "PDF wird erzeugt");
@@ -679,7 +809,7 @@
         const missing = window.RootsLayout.required(inv.layout);
         if (missing.length) throw new Error("Layout der Vorlage unvollständig: " + missing.join(", "));
       }
-      const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true, warnings });
+      const pdf = await window.RootsInvoicePdf.render(inv, seller, await pdfAssets(), { final: true, warnings, files });
       if (warnings.length) throw new Error("Im PDF läuft Text über: " + [...new Set(warnings)].join(", "));
       const en = inv.lang === "en";
       const meta = {
@@ -688,7 +818,7 @@
         subject: `${en ? "Invoice" : "Rechnung"} ${inv.number} ${en ? "dated" : "vom"} ${E.fmtDate(inv.issue_date, "de")} · ${seller.name}`,
         keywords: `${en ? "Invoice" : "Rechnung"}, E-Rechnung, ZUGFeRD, Factur-X, EN 16931`,
       };
-      const fx = await window.RootsFacturX.build(pdf, xml, en ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"), meta);
+      const fx = await window.RootsFacturX.build(pdf, xml, en ? "en-GB" : "de-DE", () => setBusy(true, "PDF wird erzeugt"), meta, attachments);
       if (fx.xsd !== "passed") return { ok: false, items: [{ level: "error", rule: "XSD", text: fx.xsd_error || "XML entspricht nicht dem Schema" }] };
       if (fx.roundtrip !== "passed") return { ok: false, items: [{ level: "error", rule: "PDF/A-3", text: "Die Rechnungsdaten ließen sich nicht in das PDF einbetten." }] };
       return { ok: true, xml, fx, schematron };
@@ -832,7 +962,8 @@
     const inv = normalized(state.edit);
     setBusy(true, "Entwurf wird erzeugt");
     try {
-      const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false });
+      await ensureFiles(inv);
+      const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false, files });
       download(pdf, `ENTWURF_${safeName(inv.number)}_${safeName(inv.buyer.name)}.pdf`, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
@@ -857,6 +988,9 @@
         resetHistory();
       }
       render();
+      if (detail.status === "draft" && annexShas(state.edit).some((sha) => !files.has(sha))) {
+        ensureFiles(state.edit).then(() => { if (state.view === "edit") renderEditor(); }).catch((e) => toast(e.message, "err"));
+      }
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -900,6 +1034,7 @@
               <button class="btn-primary" data-act="dl-pdf"><i class="fa-solid fa-file-pdf"></i> PDF mit E-Rechnung</button>
               <button class="btn-secondary" data-act="dl-xml"><i class="fa-solid fa-code"></i> XML (CII)</button>
               <button class="btn-secondary" data-act="details"><i class="fa-solid fa-circle-info"></i> Details</button>
+              <button class="btn-secondary" data-act="journal"><i class="fa-solid fa-clock-rotate-left"></i> Verlauf</button>
               ${d.status === "final" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="fa-solid fa-circle-xmark"></i> Stornieren</button>` : ""}
             </div>
           </section>
@@ -913,6 +1048,176 @@
       const res = await api("pdf", { id });
       const bytes = window.RootsFacturX.base64ToBytes(res.pdf);
       download(bytes, `Rechnung_${safeName(number)}_${safeName(customer)}.pdf`, "application/pdf");
+    } catch (e) {
+      toast(e.message, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* ------------------------------------------------- Verlauf und Archiv --- */
+
+  const EVENTS = {
+    baseline: "Bestand", created: "Angelegt", saved: "Zwischenstand", numbered: "Nummer vergeben",
+    finalized: "Endgültig erstellt", cancelled: "Storniert", deleted: "Gelöscht",
+  };
+  const stamp = (iso) => new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const who = (mail) => String(mail || "").split("@")[0];
+
+  async function openJournal(id, isDraft) {
+    if (!id) return;
+    if (isDraft) await saveDraft(true).catch(() => {});
+    setBusy(true, "Verlauf wird geladen");
+    let entries;
+    try {
+      entries = (await api("journal", { id })).entries || [];
+    } finally {
+      setBusy(false);
+    }
+    const latest = entries.filter((e) => e.data_sha256).slice(-1)[0];
+    const html = `<div class="journal">${entries.slice().reverse().map((e) => `
+      <div class="jr jr-${esc(e.event)}">
+        <span class="jr-v">V${e.version}</span>
+        <div class="jr-main">
+          <b>${esc(EVENTS[e.event] || e.event)}${e.number ? ` · <span class="mono">${esc(e.number)}</span>` : ""}</b>
+          <span class="cell-sub">${esc(stamp(e.at))} · ${esc(who(e.actor_email))}${e.gross_cents != null ? ` · ${esc(money(e.gross_cents))}` : ""}${e.note ? ` · ${esc(e.note)}` : ""}</span>
+        </div>
+        <code class="jr-hash" title="SHA-256 ${esc(e.hash)}">${esc(e.hash.slice(0, 10))}</code>
+        ${e.data_sha256 ? `<button class="icon-btn" data-jv="${e.seq}" title="Ansehen"><i class="fa-regular fa-eye"></i></button>` : `<span class="jr-pad"></span>`}
+      </div>`).join("")}</div>`;
+    const body = $("#result-body");
+    const onClick = async (ev) => {
+      const b = ev.target.closest("[data-jv]");
+      if (!b) return;
+      $("#result-dialog").classList.remove("open");
+      body.removeEventListener("click", onClick);
+      await openVersion(Number(b.dataset.jv), isDraft, latest && Number(b.dataset.jv) === latest.seq);
+    };
+    body.addEventListener("click", onClick);
+    const act = await showDialog({
+      icon: "fa-clock-rotate-left", tone: "ok",
+      title: "Verlauf",
+      html,
+      actions: [{ label: "Integrität prüfen", value: "verify" }, { label: "Schließen", value: null, primary: true }],
+    });
+    body.removeEventListener("click", onClick);
+    if (act === "verify") return verifyIntegrity(id);
+  }
+
+  async function openVersion(seq, isDraft, isLatest) {
+    setBusy(true, "Version wird geladen");
+    let e;
+    try {
+      e = (await api("journal_entry", { seq })).entry;
+      await ensureFiles(e.data);
+    } catch (err) {
+      setBusy(false);
+      return toast(err.message, "err");
+    }
+    const box = document.createElement("div");
+    box.className = "modal-overlay open version-dialog";
+    box.innerHTML = `
+      <div class="modal-box version-box">
+        <div class="version-head">
+          <h2>V${e.version} · ${esc(EVENTS[e.event] || e.event)}</h2>
+          <span class="cell-sub">${esc(stamp(e.at))} · ${esc(who(e.actor_email))}</span>
+          <button class="icon-btn" data-close title="Schließen"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="version-pages preview-pages"></div>
+        <div class="modal-actions">
+          ${isDraft && !isLatest ? `<button class="btn-primary" data-restore><i class="fa-solid fa-rotate-left"></i> Diesen Stand wiederherstellen</button>` : ""}
+          <button class="btn-secondary" data-close>Schließen</button>
+        </div>
+      </div>`;
+    document.body.appendChild(box);
+    const close = () => box.remove();
+    box.addEventListener("click", async (ev) => {
+      if (ev.target === box || ev.target.closest("[data-close]")) return close();
+      if (ev.target.closest("[data-restore]")) {
+        close();
+        if (!state.edit) return;
+        const keep = { id: state.edit.id, number: state.edit.number };
+        state.edit = { ...JSON.parse(JSON.stringify(e.data)), ...keep };
+        renderEditor();
+        commitHistory();
+        await saveDraft(true);
+        toast(`Stand V${e.version} wiederhergestellt`, "ok");
+      }
+    });
+    try {
+      const inv = { ...e.data, number: e.data.number || "" };
+      const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, files });
+      await window.RootsUI.renderPdf(pdf, box.querySelector(".version-pages"));
+    } catch (err) {
+      box.querySelector(".version-pages").innerHTML = `<p class="cell-sub">${esc(err.message)}</p>`;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyIntegrity(id) {
+    setBusy(true, "Archiv wird geprüft");
+    let r;
+    try {
+      r = await api("verify", { id: id || null });
+    } finally {
+      setBusy(false);
+    }
+    const row = (k, val) => `<div class="kv"><span>${esc(k)}</span><b>${val}</b></div>`;
+    return showDialog({
+      icon: r.ok ? "fa-shield-halved" : "fa-triangle-exclamation", tone: r.ok ? "ok" : "bad",
+      title: r.ok ? "Archiv unverändert" : "Archiv weicht ab",
+      html: `${r.ok ? "" : issueList((r.errors || []).map((t) => ({ level: "error", text: t })))}
+        ${row("Journaleinträge", esc(String(r.entries)))}
+        ${row("Letzter Kettenhash", `<code>${esc(r.last_hash || "")}</code>`)}
+        ${row("Geprüft", esc(stamp(r.checked_at)))}`,
+      actions: [{ label: "Schließen", value: true, primary: true }],
+    });
+  }
+
+  const csv = (rows) => rows.map((r) => r.map((v) => {
+    const s = String(v ?? "");
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(";")).join("\r\n");
+
+  /** ZIP mit allen endgueltigen und stornierten Rechnungen (PDF + XML), Manifest mit Hashes und Journal. */
+  async function exportArchive() {
+    const list = state.invoices.filter((i) => i.status !== "draft");
+    if (!list.length) return toast("Noch keine endgültigen Rechnungen");
+    setBusy(true, "Archiv wird erstellt");
+    try {
+      await window.RootsAnnex.loadZip();
+      const zip = new window.JSZip();
+      const sha = window.RootsAnnex.sha256;
+      const manifest = [["Rechnungsnummer", "Rechnungsdatum", "Kunde", "Brutto", "Status", "Erstellt", "Storniert", "Stornogrund", "Datei", "SHA-256 PDF", "SHA-256 XML"]];
+      for (let n = 0; n < list.length; n++) {
+        setBusy(true, `Archiv wird erstellt · ${n + 1} von ${list.length}`);
+        const inv = (await api("get", { id: list[n].id })).invoice;
+        const pdf = window.RootsFacturX.base64ToBytes((await api("pdf", { id: inv.id })).pdf);
+        const xml = new TextEncoder().encode(inv.xml || "");
+        if ((await sha(pdf)) !== inv.pdf_sha256 || (await sha(xml)) !== inv.xml_sha256) throw new Error(`Rechnung ${inv.number}: Hash stimmt nicht. Export abgebrochen.`);
+        const base = `${String(inv.issue_date || "").slice(0, 4) || "ohne Datum"}/Rechnung_${safeName(inv.number)}_${safeName(inv.customer_name)}`;
+        zip.file(`${base}.pdf`, pdf, { date: new Date(inv.finalized_at) });
+        zip.file(`${base}_factur-x.xml`, xml, { date: new Date(inv.finalized_at) });
+        manifest.push([inv.number, inv.issue_date, inv.customer_name, (inv.gross_cents / 100).toFixed(2).replace(".", ","), inv.status === "cancelled" ? "storniert" : "endgültig", inv.finalized_at, inv.cancelled_at || "", inv.cancel_reason || "", `${base}.pdf`, inv.pdf_sha256, inv.xml_sha256]);
+      }
+      setBusy(true, "Journal wird geprüft");
+      const entries = (await api("journal_all")).entries || [];
+      const check = await api("verify", {});
+      zip.file("Rechnungen.csv", "\ufeff" + csv(manifest));
+      zip.file("Journal.csv", "\ufeff" + csv([["Nr", "Rechnung", "Version", "Ereignis", "Status", "Rechnungsnummer", "Brutto", "SHA-256 Inhalt", "SHA-256 PDF", "SHA-256 XML", "Notiz", "Person", "Zeitpunkt", "Vorheriger Hash", "Hash"],
+        ...entries.map((e) => [e.seq, e.invoice_id, e.version, EVENTS[e.event] || e.event, e.status, e.number, e.gross_cents == null ? "" : (e.gross_cents / 100).toFixed(2).replace(".", ","), e.data_sha256, e.pdf_sha256, e.xml_sha256, e.note, e.actor_email, e.at, e.prev_hash, e.hash])]));
+      zip.file("Pruefung.txt", [
+        `ROOTS Rechnungsarchiv · erstellt ${new Date().toLocaleString("de-DE")} von ${state.user?.email || ""}`,
+        `Rechnungen: ${list.length}`,
+        `Journal: ${check.entries} Einträge · ${check.ok ? "Kette vollständig und unverändert" : "ABWEICHUNG: " + (check.errors || []).join("; ")}`,
+        `Letzter Kettenhash: ${check.last_hash || ""}`,
+        "",
+        "Jede PDF-Datei und jedes XML lässt sich mit sha256sum (macOS: shasum -a 256) gegen Rechnungen.csv prüfen.",
+      ].join("\r\n"));
+      const out = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+      download(out, `ROOTS_Rechnungsarchiv_${today()}.zip`, "application/zip");
+      toast(`${list.length} Rechnungen exportiert`, "ok");
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -1288,6 +1593,17 @@
           case "del-line": state.edit.lines.splice(Number(btn.dataset.i), 1); renderEditor(); commitHistory(); return scheduleAutosave();
           case "add-annex-row": (state.edit.annex.rows = state.edit.annex.rows || []).push({ label: "", amount: "", bold: false }); return renderEditor();
           case "del-annex-row": state.edit.annex.rows.splice(Number(btn.dataset.i), 1); return renderEditor();
+          case "annex-import": return $("#annex-file").click();
+          case "annex-img-del": state.edit.annex.images.splice(Number(btn.dataset.i), 1); renderEditor(); commitHistory(); return scheduleAutosave();
+          case "annex-img-move": {
+            const list = state.edit.annex.images, i = Number(btn.dataset.i), j = i + Number(btn.dataset.d);
+            if (j < 0 || j >= list.length) return;
+            [list[i], list[j]] = [list[j], list[i]];
+            renderEditor(); commitHistory(); return scheduleAutosave();
+          }
+          case "annex-file-del": state.edit.annex.files.splice(Number(btn.dataset.i), 1); renderEditor(); commitHistory(); return scheduleAutosave();
+          case "journal": return openJournal(state.view === "edit" ? state.edit.id : detail.id, state.view === "edit");
+          case "archive": return exportArchive();
           case "save": setBusy(true, "Speichern"); try { await saveDraft(); } finally { setBusy(false); } return updateLive();
           case "preview": return previewDraft();
           case "finalize": return finalize();
@@ -1405,6 +1721,31 @@
       }
       const el = e.target.closest("select[data-path]");
       if (el && state.edit && (el.dataset.path === "lang" || el.dataset.path === "tax_case")) renderEditor();
+    });
+
+    document.addEventListener("change", (e) => {
+      if (e.target.id !== "annex-file") return;
+      const f = e.target.files?.[0];
+      e.target.value = "";
+      if (f) importAnnex(f).catch((err) => { setBusy(false); toast(err.message, "err"); });
+    });
+    document.addEventListener("dragover", (e) => {
+      const card = e.target.closest?.("#annex-card");
+      if (!card || !e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      card.classList.add("dropping");
+    });
+    document.addEventListener("dragleave", (e) => {
+      const card = e.target.closest?.("#annex-card");
+      if (card && !card.contains(e.relatedTarget)) card.classList.remove("dropping");
+    });
+    document.addEventListener("drop", (e) => {
+      const card = e.target.closest?.("#annex-card");
+      if (!card) return;
+      e.preventDefault();
+      card.classList.remove("dropping");
+      const f = e.dataTransfer?.files?.[0];
+      if (f) importAnnex(f).catch((err) => { setBusy(false); toast(err.message, "err"); });
     });
 
     $("#cust-form").addEventListener("submit", (e) => { e.preventDefault(); saveCustomer(e.target).catch((err) => toast(err.message, "err")); });
