@@ -330,3 +330,7 @@ begin
     execute src;
   end if;
 end $$;
+
+-- Triggerfunktionen nicht per RPC aufrufbar
+revoke all on function public.rg_invoices_journal() from public, anon, authenticated;
+revoke all on function public.rg_append_only() from public, anon, authenticated;
