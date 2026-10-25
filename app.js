@@ -374,9 +374,12 @@
     };
   }
 
+  /** Name in der Oberflaeche; auf der Rechnung steht immer die Firma. */
+  const custLabel = (c) => String(c?.data?.display_name || "").trim() || c?.name || "";
+
   function logoHtml(c, cls = "cust-logo") {
     const src = window.RootsUI.safeLogo(c?.data?.logo);
-    return `<div class="${cls}">${src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : `<span class="monogram">${esc(window.RootsUI.monogram(c?.name))}</span>`}</div>`;
+    return `<div class="${cls}">${src ? `<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">` : `<span class="monogram">${esc(window.RootsUI.monogram(custLabel(c)))}</span>`}</div>`;
   }
 
   function customerSpecs(c) {
@@ -412,7 +415,7 @@
           ${state.customers.map((c) => `
             <button class="cust-tile" data-pick-customer="${esc(c.id)}">
               ${logoHtml(c)}
-              <span class="cust-name">${esc(c.name)}</span>
+              <span class="cust-name">${esc(custLabel(c))}</span>
               ${customerSpecs(c)}
             </button>`).join("")}
           <button class="cust-tile cust-new" data-pick-customer="">
@@ -427,7 +430,7 @@
     box.innerHTML = `
       <div class="modal-headline">
         <button class="btn-ghost sm" data-act="new-back"><i class="fa-solid fa-arrow-left"></i> Kunden</button>
-        <h2>${c ? esc(c.name) : "Neuer Kunde"}</h2>
+        <h2>${c ? esc(custLabel(c)) : "Neuer Kunde"}</h2>
         <button class="icon-btn" data-act="close-dialog" title="Schließen"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="tpl-grid" id="tpl-list">
@@ -514,7 +517,7 @@
             <div class="card-head">
               <h3><i class="fa-solid fa-building"></i> Kunde</h3>
               <div class="card-actions">
-                <select id="pick-customer"><option value="">Aus Kundenliste</option>${state.customers.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}</select>
+                <select id="pick-customer"><option value="">Aus Kundenliste</option>${state.customers.map((c) => `<option value="${esc(c.id)}">${esc(custLabel(c))}</option>`).join("")}</select>
                 <button class="btn-ghost sm" data-act="save-customer"><i class="fa-solid fa-user-plus"></i> Als Kunde speichern</button>
               </div>
             </div>
@@ -1232,7 +1235,7 @@
       ? state.customers.map((c) => {
           const d = c.data || {};
           return `<tr data-cid="${esc(c.id)}">
-            <td><div class="cell-with-logo">${logoHtml(c, "cust-logo xs")}<div><div class="cell-main">${esc(c.name)}</div><div class="cell-sub">${esc([d.street, `${d.zip || ""} ${d.city || ""}`.trim(), d.country].filter(Boolean).join(", "))}</div></div></div></td>
+            <td><div class="cell-with-logo">${logoHtml(c, "cust-logo xs")}<div><div class="cell-main">${esc(custLabel(c))}</div><div class="cell-sub">${esc([d.street, `${d.zip || ""} ${d.city || ""}`.trim(), d.country].filter(Boolean).join(", "))}</div></div></div></td>
             <td class="mono">${esc(d.vat_id || "")}</td>
             <td>${esc(customerTemplate(c)?.name || "")}</td>
             <td>${esc(d.email || "")}</td>
@@ -1252,6 +1255,7 @@
       <input type="hidden" name="id" value="${esc(c?.id || "")}">
       <div class="fields">
         <label class="field wide"><span class="flabel">Firma</span><input name="name" value="${esc(c?.name || "")}" required></label>
+        <label class="field wide"><span class="flabel">Anzeigename im Tool</span><input name="display_name" value="${esc(d.display_name || "")}" placeholder="${esc(c?.name || "")}"></label>
         <label class="field wide"><span class="flabel">Straße / Postfach</span><input name="street" value="${esc(d.street || "")}"></label>
         <label class="field wide"><span class="flabel">Adresszusatz</span><input name="street2" value="${esc(d.street2 || "")}"></label>
         ${f("zip", "PLZ", d.zip)}
@@ -1293,6 +1297,7 @@
     data.vat_id = String(data.vat_id || "").replace(/\s+/g, "").toUpperCase();
     data.hide_country = fd.hide_country === "1";
     data.vat_print = String(data.vat_print || "").trim();
+    data.display_name = String(data.display_name || "").trim();
     const tpl = state.templates.find((t) => t.id === data.template_id);
     data.tax_case = tpl?.data?.tax_case || "";
     data.lang = tpl?.data?.lang || "de";
@@ -1615,7 +1620,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
