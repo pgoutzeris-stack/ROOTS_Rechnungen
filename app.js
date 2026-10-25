@@ -103,6 +103,10 @@
   }
 
   /** Naechste freie Nummer eines Kreises, wie rg_reserve_number sie vergeben wuerde. */
+  /** Nummer, die im Entwurf angezeigt und in der Vorschau gedruckt wird. */
+  function shownNumber(inv) {
+    return inv?.number || inv?.number_manual || previewNumber(sequenceOf(inv));
+  }
   function previewNumber(seq) {
     if (!seq || seq.next_number == null) return "";
     let n = Number(seq.next_number);
@@ -640,7 +644,11 @@
           <section class="card">
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
-              <label class="field"><span class="flabel">Rechnungsnummer</span><input value="${esc(inv.number || "")}" placeholder="Wird beim Erstellen vergeben" class="mono" disabled></label>
+              <div class="field"><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"}</span>
+                <div class="num-field"><input value="${esc(shownNumber(inv))}" class="mono" disabled>
+                  ${inv.number ? "" : `<button type="button" class="icon-btn" data-act="number-edit" title="Nummer ändern"><i class="fa-solid fa-pen"></i></button>`}
+                  ${!inv.number && inv.number_manual ? `<button type="button" class="icon-btn" data-act="number-auto" title="Wieder aus dem Nummernkreis"><i class="fa-solid fa-rotate-left"></i></button>` : ""}
+                </div></div>
               ${input("tax_case", "Steuerfall", { options: tcOpts })}
               ${input("lang", "Sprache", { options: [["de", "Deutsch"], ["en", "English"]] })}
               ${input("issue_date", "Rechnungsdatum", { type: "date" })}
@@ -842,7 +850,7 @@
       if (!box || !state.edit) return;
       try {
         const regions = {};
-        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions, files: await previewFiles(state.edit) });
+        const pdf = await window.RootsInvoicePdf.render({ ...normalized(state.edit), number: shownNumber(state.edit) }, state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions, files: await previewFiles(state.edit) });
         const pages = await window.RootsUI.renderPdf(pdf, box);
         if (pages) {
           state.regions = regions;
@@ -997,7 +1005,7 @@
     }
 
     const seq = sequenceOf(inv);
-    if (!inv.number && (!seq || !seq.confirmed_at || seq.next_number == null)) {
+    if (!inv.number && !inv.number_manual && (!seq || !seq.confirmed_at || seq.next_number == null)) {
       const go = await showDialog({
         icon: "fa-hashtag", tone: "bad",
         title: "Nummernkreis nicht freigegeben",
@@ -1009,7 +1017,7 @@
     }
 
     // 1. Probelauf mit der voraussichtlichen Nummer: Fehler zeigen, bevor eine Nummer vergeben wird
-    const preview = inv.number || previewNumber(seq);
+    const preview = inv.number || inv.number_manual || previewNumber(seq);
     setBusy(true, "Rechnung wird geprüft");
     await saveDraft(true);
     let result = await buildAll({ ...inv, number: preview }, seller);
@@ -1029,7 +1037,7 @@
     setBusy(true, "Rechnungsnummer wird vergeben");
     try {
       if (!inv.number) {
-        const res = await api("reserve", { id: state.edit.id });
+        const res = await api("reserve", { id: state.edit.id, manual: state.edit.number_manual || null });
         state.edit.number = res.number;
         inv = normalized(state.edit);
         refreshSequences();
@@ -1630,6 +1638,26 @@
 
   /* ------------------------------------------------------------- Dialoge --- */
 
+  /** Rechnungsnummer von Hand: erst bestaetigen, dann eingeben. Der Server prueft beim Erstellen erneut. */
+  async function editNumber() {
+    const ok = await confirmDialog("Rechnungsnummer manuell vergeben?", `Statt ${previewNumber(sequenceOf(state.edit)) || "der Nummer aus dem Nummernkreis"} gilt dann die eingegebene Nummer. Sie muss eindeutig sein.`, "Ändern");
+    if (!ok) return;
+    const val = await showDialog({
+      icon: "fa-hashtag", tone: "ok",
+      title: "Rechnungsnummer",
+      html: `<input id="manual-number" class="mono" value="${esc(shownNumber(state.edit))}" maxlength="40" style="margin-top:8px">`,
+      actions: [{ label: "Abbrechen", value: null }, { label: "Übernehmen", value: "ok", primary: true }],
+    });
+    if (val !== "ok") return;
+    const num = String(document.getElementById("manual-number")?.value || "").trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9./_-]{0,39}$/.test(num)) return toast("Nur Buchstaben, Ziffern, Punkt, Schrägstrich, Unterstrich und Bindestrich", "err");
+    if (state.invoices.some((i) => i.number === num && i.id !== state.edit.id)) return toast(`${num} ist bereits vergeben`, "err");
+    const auto = previewNumber(sequenceOf(state.edit));
+    if (num === auto) delete state.edit.number_manual;
+    else state.edit.number_manual = num;
+    renderEditor(); commitHistory(); scheduleAutosave();
+  }
+
   function confirmDialog(title, text, okLabel, withReason) {
     return new Promise((resolve) => {
       const dlg = $("#confirm-dialog");
@@ -1741,6 +1769,10 @@
           case "add-annex-row": (state.edit.annex.rows = state.edit.annex.rows || []).push({ label: "", amount: "", bold: false }); return renderEditor();
           case "del-annex-row": state.edit.annex.rows.splice(Number(btn.dataset.i), 1); return renderEditor();
           case "annex-import": return $("#annex-file").click();
+          case "number-edit": return editNumber();
+          case "number-auto":
+            delete state.edit.number_manual;
+            renderEditor(); commitHistory(); return scheduleAutosave();
           case "annex-img-del": state.edit.annex.images.splice(Number(btn.dataset.i), 1); renderEditor(); commitHistory(); return scheduleAutosave();
           case "annex-img-move": {
             const list = state.edit.annex.images, i = Number(btn.dataset.i), j = i + Number(btn.dataset.d);
