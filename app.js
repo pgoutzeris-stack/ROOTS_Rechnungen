@@ -11,6 +11,7 @@
   "use strict";
 
   const E = window.RootsEInvoice;
+  const RT = window.RootsRich;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -367,7 +368,7 @@
       ordered_by: c.contact || "",
       note: tpl.note || "",
       buyer: customer ? { name: customer.name, street: c.street || "", street2: c.street2 || "", zip: c.zip || "", city: c.city || "", country: c.country || "DE", vat_id: c.vat_id || "", vat_print: c.vat_print || "", hide_country: !!c.hide_country, email: c.email || "", contact: "" } : { name: "", street: "", street2: "", zip: "", city: "", country: "DE", vat_id: "", email: "", contact: "" },
-      lines: tpl.lines.map((l) => ({ label: l.label, detail: l.detail || "", amount: "" })),
+      lines: tpl.lines.map((l) => ({ label: l.label, detail: "", html: RT.sanitize(RT.fromLine(l)), amount: "" })),
       annex: JSON.parse(JSON.stringify({ title: "", text: "", rows: [], ...(tpl.annex || {}) })),
       layout: tpl.layout && tpl.layout.elements?.length ? JSON.parse(JSON.stringify(tpl.layout)) : undefined,
       customer_id: customer?.id || null,
@@ -535,11 +536,20 @@
 
           <section class="card">
             <div class="card-head"><h3><i class="fa-solid fa-list"></i> Positionen</h3><button class="btn-ghost sm" data-act="add-line"><i class="fa-solid fa-plus"></i> Position</button></div>
+            <div class="rt-bar" role="toolbar" aria-label="Formatierung">
+              <button type="button" data-rt="bold" title="Fett (⌘B)"><i class="fa-solid fa-bold"></i></button>
+              <button type="button" data-rt="italic" title="Kursiv (⌘I)"><i class="fa-solid fa-italic"></i></button>
+              <button type="button" data-rt="underline" title="Unterstrichen (⌘U)"><i class="fa-solid fa-underline"></i></button>
+              <hr>
+              <button type="button" data-rt="insertUnorderedList" title="Aufzählung"><i class="fa-solid fa-list-ul"></i></button>
+              <button type="button" data-rt="insertOrderedList" title="Nummerierung"><i class="fa-solid fa-list-ol"></i></button>
+              <hr>
+              <button type="button" data-rt="removeFormat" title="Formatierung entfernen"><i class="fa-solid fa-text-slash"></i></button>
+            </div>
             <div class="lines">
               ${inv.lines.map((l, i) => `
-                <div class="line-row">
-                  <input data-path="lines.${i}.label" value="${esc(l.label)}" placeholder="Bezeichnung">
-                  <input data-path="lines.${i}.detail" value="${esc(l.detail || "")}" placeholder="Zusatz">
+                <div class="line-row rich-row">
+                  <div class="rt" contenteditable="true" spellcheck="true" data-rich="${i}" data-placeholder="Position">${RT.sanitize(RT.fromLine(l))}</div>
                   <input data-path="lines.${i}.amount" value="${esc(l.amount)}" placeholder="0,00" class="num">
                   <button class="icon-btn" data-act="del-line" data-i="${i}" title="Entfernen"><i class="fa-solid fa-trash-can"></i></button>
                 </div>`).join("")}
@@ -1704,6 +1714,18 @@
     });
 
     document.addEventListener("input", (e) => {
+      const rt = e.target.closest?.("[data-rich]");
+      if (rt && state.edit) {
+        const l = state.edit.lines[Number(rt.dataset.rich)];
+        if (!l) return;
+        l.html = RT.sanitize(rt.innerHTML);
+        l.label = E.lineText(l).name;
+        l.detail = "";
+        pendingFocus = `lines.${rt.dataset.rich}`;
+        scheduleHistory();
+        scheduleAutosave();
+        return updateLive();
+      }
       const el = e.target.closest("[data-path]");
       if (!el || !state.edit) return;
       setPath(el.dataset.path, el.type === "checkbox" ? el.checked : el.dataset.date ? window.RootsUI.deToIso(el.value) : el.value);
@@ -1759,21 +1781,56 @@
 
   let releaseTimer = null;
   document.addEventListener("focusin", (e) => {
-    const el = e.target.closest?.("[data-path]");
+    const el = e.target.closest?.("[data-path], [data-rich]");
     if (!el || state.view !== "edit") return;
     clearTimeout(releaseTimer);
-    window.RootsUI.highlight($("#preview-pages"), state.regions?.[regionKey(el.dataset.path)]);
+    const key = el.dataset.rich !== undefined ? `lines.${el.dataset.rich}` : regionKey(el.dataset.path);
+    window.RootsUI.highlight($("#preview-pages"), state.regions?.[key]);
+  });
+
+  /* Formatleiste der Positionen: Fokus bleibt im Textfeld */
+  document.addEventListener("mousedown", (e) => {
+    const b = e.target.closest?.("[data-rt]");
+    if (!b) return;
+    e.preventDefault();
+    const field = document.activeElement?.closest?.("[data-rich]");
+    if (!field) return;
+    try { document.execCommand("styleWithCSS", false, false); } catch (_) { /* alte Browser */ }
+    document.execCommand(b.dataset.rt);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    updateRtBar();
+  });
+  function updateRtBar() {
+    const inField = !!document.activeElement?.closest?.("[data-rich]");
+    $$(".rt-bar [data-rt]").forEach((b) => {
+      let on = false;
+      if (inField && b.dataset.rt !== "removeFormat") { try { on = document.queryCommandState(b.dataset.rt); } catch (_) { on = false; } }
+      b.classList.toggle("on", on);
+      b.disabled = !inField;
+    });
+  }
+  document.addEventListener("selectionchange", updateRtBar);
+  document.addEventListener("focusout", () => setTimeout(updateRtBar, 0));
+  /* Einfuegen aus Word: nur erlaubte Formatierung uebernehmen */
+  document.addEventListener("paste", (e) => {
+    const field = e.target.closest?.("[data-rich]");
+    if (!field) return;
+    e.preventDefault();
+    const html = e.clipboardData.getData("text/html");
+    const txt = e.clipboardData.getData("text/plain");
+    const clean = html ? RT.sanitize(html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(style|script|xml|head)[\s\S]*?<\/\1>/gi, "")) : RT.esc(txt).replace(/\r?\n/g, "<br>");
+    document.execCommand("insertHTML", false, clean);
   });
   document.addEventListener("focusout", (e) => {
-    if (!e.target.closest?.("[data-path]") || state.view !== "edit") return;
+    if (!e.target.closest?.("[data-path], [data-rich]") || state.view !== "edit") return;
     clearTimeout(releaseTimer);
     releaseTimer = setTimeout(() => {
-      if (!document.activeElement?.closest?.("[data-path]")) window.RootsUI.release($("#preview-pages"));
+      if (!document.activeElement?.closest?.("[data-path], [data-rich]")) window.RootsUI.release($("#preview-pages"));
     }, 250);
   });
   document.addEventListener("keydown", (e) => {
     if (state.view !== "edit" || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-    if (e.target.closest?.("input, textarea")) return;
+    if (e.target.closest?.("input, textarea, [contenteditable]")) return;
     e.preventDefault();
     stepHistory(e.shiftKey ? 1 : -1);
   });

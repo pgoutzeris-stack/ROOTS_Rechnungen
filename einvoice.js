@@ -7,10 +7,17 @@
  * (factur-x im Browser, facturx.js). Laeuft im Browser und in Node.
  */
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.RootsEInvoice = factory();
-})(typeof self !== "undefined" ? self : this, function () {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./richtext.js"));
+  else root.RootsEInvoice = factory(root.RootsRich);
+})(typeof self !== "undefined" ? self : this, function (RT) {
   "use strict";
+
+  /** Bezeichnung (BT-153) und Beschreibung (BT-154): erste Zeile und Rest des Positionstexts. */
+  function lineText(l) {
+    if (typeof l?.html !== "string") return { name: String(l?.label || ""), desc: String(l?.detail || "") };
+    const ls = RT.plainLines(l.html);
+    return { name: ls[0] || "", desc: ls.slice(1).join("\n") };
+  }
 
   const PROFILE = "urn:cen.eu:en16931:2017";
 
@@ -119,7 +126,7 @@
       const c = t.lines[i];
       return "<ram:IncludedSupplyChainTradeLineItem>" +
         `<ram:AssociatedDocumentLineDocument><ram:LineID>${i + 1}</ram:LineID></ram:AssociatedDocumentLineDocument>` +
-        "<ram:SpecifiedTradeProduct>" + tag("ram:Name", l.label) + tag("ram:Description", l.detail) + "</ram:SpecifiedTradeProduct>" +
+        "<ram:SpecifiedTradeProduct>" + tag("ram:Name", lineText(l).name) + tag("ram:Description", lineText(l).desc) + "</ram:SpecifiedTradeProduct>" +
         `<ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice><ram:ChargeAmount>${dec(c)}</ram:ChargeAmount></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>` +
         '<ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode="C62">1</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>' +
         "<ram:SpecifiedLineTradeSettlement>" +
@@ -265,7 +272,7 @@
     const lines = inv.lines || [];
     if (!lines.length) err("BR-16", "lines", "Mindestens eine Position.");
     lines.forEach((l, i) => {
-      if (!String(l.label || "").trim()) err("BR-25", `lines.${i}.label`, `Position ${i + 1}: Bezeichnung fehlt.`);
+      if (!lineText(l).name.trim()) err("BR-25", `lines.${i}.label`, `Position ${i + 1}: Bezeichnung fehlt.`);
       if (!Number.isFinite(t.lines[i])) err("BR-27", `lines.${i}.amount`, `Position ${i + 1}: Betrag ist keine Zahl.`);
       else if (t.lines[i] < 0) err("BR-27", `lines.${i}.amount`, `Position ${i + 1}: negativer Betrag. Gutschriften laufen über Storno.`);
     });
@@ -291,5 +298,5 @@
     return out;
   }
 
-  return { XML_ATTACH_MIME, PROFILE, TAX_CASES, EU, toCents, dec, money, totals, buildXml, precheck, fmtDate, ibanOk, vatOk };
+  return { lineText, XML_ATTACH_MIME, PROFILE, TAX_CASES, EU, toCents, dec, money, totals, buildXml, precheck, fmtDate, ibanOk, vatOk };
 });

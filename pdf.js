@@ -6,9 +6,9 @@
  * assets: { regular, bold, logo, icc } als Uint8Array.
  */
 (function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory(require("pdf-lib"), require("@pdf-lib/fontkit"), require("./einvoice.js"), require("./layout.js"));
-  else root.RootsInvoicePdf = factory(root.PDFLib, root.fontkit, root.RootsEInvoice, root.RootsLayout);
-})(typeof self !== "undefined" ? self : this, function (PDFLib, fontkit, E, LY) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("pdf-lib"), require("@pdf-lib/fontkit"), require("./einvoice.js"), require("./layout.js"), require("./richtext.js"));
+  else root.RootsInvoicePdf = factory(root.PDFLib, root.fontkit, root.RootsEInvoice, root.RootsLayout, root.RootsRich);
+})(typeof self !== "undefined" ? self : this, function (PDFLib, fontkit, E, LY, RT) {
   "use strict";
 
   const { PDFDocument, rgb, PDFName, PDFString, PDFHexString, degrees } = PDFLib;
@@ -85,7 +85,7 @@
     const pages = [];
     const layout = inv.layout && Array.isArray(inv.layout.elements) && inv.layout.elements.length ? inv.layout : null;
     const layoutImages = layout ? await LY.prepare(doc, layout) : {};
-    const layoutCtx = (page) => ({ PDFLib, page, H, R, B, logo, images: layoutImages, inv, seller, L, tc, t, money, date, final: !!opts.final, wrap, countryName, periodText, regions: opts.regions || null, pageIndex: pages.length - 1, warnings: opts.warnings || null });
+    const layoutCtx = (page) => ({ PDFLib, RT, page, H, R, B, logo, images: layoutImages, inv, seller, L, tc, t, money, date, final: !!opts.final, wrap, countryName, periodText, regions: opts.regions || null, pageIndex: pages.length - 1, warnings: opts.warnings || null });
 
     function footer(page) {
       const s = 6.8;
@@ -152,11 +152,11 @@
     const meta = [
       [L.number, inv.number, "number"],
       [L.project, inv.project, "project"],
-      [L.period, periodText(inv.period_start, inv.period_end, date), "period"],
+      [L.period, inv.period_start && inv.period_end ? periodText(inv.period_start, inv.period_end, date) : "", "period"],
       [L.cost, inv.cost_center, "cost_center"],
       [L.po, inv.po, "po"],
       [L.contact, inv.ordered_by, "ordered_by"],
-    ].filter((r) => opts.preview || String(r[1] || "").trim());
+    ].filter((r) => String(r[1] || "").trim() || (opts.preview && r[2] === "number"));
     meta.forEach(([k, v, key]) => {
       text(k, ML, y, { color: MUTED });
       const empty = !String(v || "").trim();
@@ -170,8 +170,9 @@
     const AX = ML + 92;
     (inv.lines || []).forEach((l, i) => {
       right(t.lines[i] ? money(t.lines[i]) : "- €", AX, y);
-      const lines = wrap(l.label + (l.detail ? ` (${l.detail})` : ""), R, 9.5, CW - 110);
-      lines.forEach((ln, j) => text(ln, AX + 16, y - j * 12.5));
+      const lines = RT.layout(RT.parse(RT.fromLine(l)), { R, B }, 9.5, CW - 110);
+      if (!lines.length) lines.push({ segs: [] });
+      lines.forEach((ln, j) => RT.drawLine(p, ln, AX + 16, y - j * 12.5, 9.5, INK, { R, B }, PDFLib));
       mark(`lines.${i}`, ML, y, W - MR, y - (lines.length - 1) * 12.5);
       y -= 12.5 * lines.length + 6;
     });

@@ -221,7 +221,8 @@
         const avail = (r.wrapW || w);
         const ax = s.align === "right" ? x + w - tw : s.align === "center" ? x + (w - tw) / 2 : tx;
         if (r.label !== undefined) page.drawText(r.label, { x, y, size: sz, font: R, color: rgb(0.4, 0.45, 0.52) });
-        page.drawText(r.text, { x: r.amount !== undefined || r.label !== undefined ? tx : ax, y, size: sz, font: f, color: c });
+        if (r.rich) ctx.RT.drawLine(page, r.rich, tx, y, sz, c, { R: font, B }, ctx.PDFLib);
+        else page.drawText(r.text, { x: r.amount !== undefined || r.label !== undefined ? tx : ax, y, size: sz, font: f, color: c });
         y -= (r.gap ?? lh * (sz / size));
         void avail;
       }
@@ -256,7 +257,7 @@
         const labelW = Math.min(w * 0.36, 120);
         const meta = [
           [L.number, inv.number, "number", true], [L.project, inv.project, "project"],
-          [L.period, ctx.periodText(inv.period_start, inv.period_end, date), "period"],
+          [L.period, inv.period_start && inv.period_end ? ctx.periodText(inv.period_start, inv.period_end, date) : "", "period"],
           [L.cost, inv.cost_center, "cost_center"], [L.po, inv.po, "po"],
           [L.contact, inv.ordered_by, "ordered_by"],
         ].filter((r) => String(r[1] || "").trim());
@@ -276,8 +277,10 @@
         const amountX = Math.min(w * 0.24, 92);
         let y = top;
         (inv.lines || []).forEach((l, i) => {
-          const lines = ctx.wrap(l.label + (l.detail ? ` (${l.detail})` : ""), R, size, w - amountX - 16);
-          lines.forEach((ln, j) => rows.push({ text: ln, indent: amountX + 16, amount: j === 0 ? (t.lines[i] ? money(t.lines[i]) : "- €") : undefined, amountX, wrapW: w - amountX - 16 }));
+          const RT = ctx.RT;
+          const lines = RT.layout(RT.parse(RT.fromLine(l)), { R, B }, size, w - amountX - 16);
+          if (!lines.length) lines.push({ segs: [] });
+          lines.forEach((ln, j) => rows.push({ text: "", rich: ln, indent: amountX + 16, amount: j === 0 ? (t.lines[i] ? money(t.lines[i]) : "- €") : undefined, amountX, wrapW: w - amountX - 16 }));
           if (ctx.regions) ctx.regions[`lines.${i}`] = { page: ctx.pageIndex, x: (e.x - 1.5) / 210, y: (mmY(y) - 1.5) / 297, w: (e.w + 3) / 210, h: ((lines.length * lh) / MM + 3) / 297 };
           y -= lines.length * lh + size * 0.6;
           rows[rows.length - 1].gap = lh + size * 0.6;
