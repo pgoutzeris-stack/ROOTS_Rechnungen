@@ -238,33 +238,82 @@
           y -= 11;
         });
       }
-      /* Ausschnitte aus Excel, Word, PDF: volle Satzbreite hoechstens, nie hochskaliert */
-      for (const im of images) {
-        const idx = (a.images || []).indexOf(im);
-        const bytes = opts.files && opts.files.get(im.sha);
+      /*
+       * Ausschnitte aus Excel, Word, PDF. Ziel: alles auf die Anlagenseite, auf der
+       * auch Titel und Text stehen. Reicht der Platz nicht, wird verkleinert,
+       * solange es lesbar bleibt (MIN_SCALE). Erst darunter laeuft ein Bild auf
+       * die naechste Seite weiter, bei Excel zwischen zwei Tabellenzeilen.
+       */
+      const MIN_SCALE = 0.62;
+      const BOTTOM = 100, TOP = H - 150, PAGE_AVAIL = TOP - BOTTOM;
+      const items = images.map((im) => {
         const natW = (Number(im.w) || 600) * 0.75, natH = (Number(im.h) || 300) * 0.75;   // CSS-Pixel -> pt
-        const maxH = H - 150 - 100;
-        let w = Math.min(CW, natW), h = (natH * w) / natW;
-        if (h > maxH) { w = (w * maxH) / h; h = maxH; }
+        const w0 = Math.min(CW, natW), k0 = w0 / natW;
         const caption = String(im.caption || "").trim();
-        const need = h + (caption ? 18 : 0) + 14;
-        if (y - need < 100) { p = newPage(); y = H - 150; }
-        y -= 6;
-        if (bytes) {
-          const img = bytes[0] === 0x89 ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-          p.drawImage(img, { x: ML, y: y - h, width: w, height: h });
-        } else if (opts.final) {
-          throw new Error(`Anlage-Bild ${idx + 1} fehlt.`);
+        return { im, idx: (a.images || []).indexOf(im), w0, h0: natH * k0, cuts: (im.cuts || []).map((c) => c * 0.75 * k0), caption, extra: 6 + (caption ? 24 : 0) + 18 };
+      });
+      const embedded = new Map();
+      const embed = async (it) => {
+        const bytes = opts.files && opts.files.get(it.im.sha);
+        if (!bytes) { if (opts.final) throw new Error(`Anlage-Bild ${it.idx + 1} fehlt.`); return null; }
+        if (!embedded.has(it.im.sha)) embedded.set(it.im.sha, bytes[0] === 0x89 ? await doc.embedPng(bytes) : await doc.embedJpg(bytes));
+        return embedded.get(it.im.sha);
+      };
+      const drawCaption = (it) => {
+        if (!it.caption) return;
+        y -= 13;
+        wrap(it.caption, R, 8.5, CW).forEach((ln, j) => { if (j < 2) { text(ln, ML, y, { size: 8.5, color: MUTED }); y -= 11; } });
+        y += 11;
+      };
+      // Ausschnitt [from, to) eines Bildes (in pt bei Massstab sc) an y zeichnen
+      const drawSlice = (img, it, sc, from, to) => {
+        const w = it.w0 * sc, fullH = it.h0 * sc, hh = to - from;
+        if (img) {
+          p.pushOperators(PDFLib.pushGraphicsState(), PDFLib.rectangle(ML, y - hh, w, hh), PDFLib.clip(), PDFLib.endPath());
+          p.drawImage(img, { x: ML, y: y - hh - (fullH - to), width: w, height: fullH });
+          p.pushOperators(PDFLib.popGraphicsState());
         } else {
-          p.drawRectangle({ x: ML, y: y - h, width: w, height: h, color: rgb(0.95, 0.96, 0.98) });
+          p.drawRectangle({ x: ML, y: y - hh, width: w, height: hh, color: rgb(0.95, 0.96, 0.98) });
         }
-        mark(`annex.images.${idx}`, ML, y - 9.5, ML + w, y - h + 4.3);
-        y -= h;
-        if (caption) {
-          y -= 13;
-          wrap(caption, R, 8.5, CW).forEach((ln, j) => { if (j < 3) { text(ln, ML, y, { size: 8.5, color: MUTED }); y -= 11; } });
-          y += 11;
+        mark(`annex.images.${it.idx}`, ML, y - 9.5, ML + w, y - hh + 4.3);
+        y -= hh;
+      };
+
+      const avail = () => y - BOTTOM;
+      const fixed = items.reduce((s2, it) => s2 + it.extra, 0);
+      const imgH = items.reduce((s2, it) => s2 + it.h0, 0);
+      // gemeinsamer Massstab, damit alles auf diese Seite passt
+      let sc = Math.min(1, imgH ? (avail() - fixed) / imgH : 1);
+      if (sc < MIN_SCALE && y < TOP - 1) {
+        // auf einer frischen Seite haette alles lesbar Platz? Dann lieber dort
+        const fresh = Math.min(1, (PAGE_AVAIL - fixed) / imgH);
+        if (fresh >= MIN_SCALE && fresh > sc) { p = newPage(); y = TOP; sc = fresh; }
+      }
+      for (const it of items) {
+        const img = await embed(it);
+        const s1 = sc >= MIN_SCALE ? sc : Math.max(MIN_SCALE, Math.min(1, (avail() - it.extra) / it.h0));
+        const fullH = it.h0 * s1;
+        y -= 6;
+        if (fullH <= avail() - it.extra + 6 + 0.5) {
+          drawSlice(img, it, s1, 0, fullH);
+        } else {
+          // Teilen: so gross, dass es auf diese plus naechste Seite passt
+          const s2 = Math.max(MIN_SCALE, Math.min(1, (avail() + PAGE_AVAIL - it.extra) / it.h0));
+          const total = it.h0 * s2;
+          const cuts = it.cuts.map((c) => c * (s2 / 1));
+          let from = 0;
+          while (from < total - 0.5) {
+            let to = Math.min(total, from + avail());
+            if (to < total) {
+              const best = cuts.filter((c) => c > from + 20 && c <= to).pop();
+              if (best) to = best;
+            }
+            drawSlice(img, it, s2, from, to);
+            from = to;
+            if (from < total - 0.5) { p = newPage(); y = TOP; }
+          }
         }
+        drawCaption(it);
         y -= 18;
       }
     }

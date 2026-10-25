@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=20"></script>
-<script src="richtext.js?v=20"></script>
-<script src="einvoice.js?v=20"></script>
-<script src="layout.js?v=20"></script>
-<script src="designer.js?v=20"></script>
-<script src="pdf.js?v=20"></script>
-<script src="schematron.js?v=20"></script>
-<script src="facturx.js?v=20"></script>
-<script src="annex.js?v=20"></script>
-<script src="app.js?v=20"></script>
+<script src="ui.js?v=21"></script>
+<script src="richtext.js?v=21"></script>
+<script src="einvoice.js?v=21"></script>
+<script src="layout.js?v=21"></script>
+<script src="designer.js?v=21"></script>
+<script src="pdf.js?v=21"></script>
+<script src="schematron.js?v=21"></script>
+<script src="facturx.js?v=21"></script>
+<script src="annex.js?v=21"></script>
+<script src="app.js?v=21"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -126,7 +126,8 @@ button:disabled{cursor:not-allowed}
 .card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:20px;flex-wrap:wrap}
 .card-head h3{margin:0}
 .card-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.page-head{display:flex;align-items:center;gap:14px;margin:-24px -24px 20px;padding:14px 24px;flex-wrap:wrap;position:sticky;top:0;z-index:20;background:var(--app-bg)}
+.page-head{display:flex;align-items:center;gap:12px;margin:-24px -24px 20px;padding:10px 24px;min-height:60px;flex-wrap:nowrap;position:sticky;top:-24px;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);box-shadow:0 2px 8px rgba(15,23,42,.04)}
+.page-head h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .page-head h2{font-size:1.35rem;font-weight:700;margin:0}
 
 /* Tabelle */
@@ -228,8 +229,8 @@ input:disabled{background:var(--surface);color:var(--muted)}
 @keyframes toastIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
 
 /* Vorschau: Hervorhebung, Zoom (dezent, grau) */
-.preview-page-wrap{position:relative;transition:transform .7s cubic-bezier(.22,.61,.36,1);transform:scale(1);flex-shrink:0;will-change:transform}
-.preview-page-wrap.zoomed{transform:scale(1.08);z-index:2}
+.preview-page-wrap{position:relative;flex-shrink:0}
+.preview-page-wrap.zoomed{transform:none}
 .preview-page-wrap.no-anim{transition:none}
 .preview-page-wrap canvas{display:block}
 .preview-pages{overflow:auto}
@@ -393,7 +394,7 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .tpl-card .tpl-meta{display:block}
 
 /* Editor: links Felder, rechts Live-PDF */
-.page-head .head-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.page-head .head-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:nowrap;flex-shrink:0}
 .page-head .head-actions .btn-primary{height:40px;padding:0 1.2rem}
 .editor-split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(340px,1fr);gap:20px;align-items:start}
 .check-card .card-head{margin-bottom:14px}
@@ -401,7 +402,7 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .check-card .checks{flex-direction:row;flex-wrap:wrap;gap:8px 18px;margin:0}
 .check-card .checks li em{margin-left:4px}
 .check-card .issues{margin:14px 0 0}
-.preview-pane{position:sticky;top:76px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;height:calc(100dvh - 64px - 48px - 64px);min-height:420px;overflow:hidden}
+.preview-pane{position:sticky;top:56px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;height:calc(100dvh - 64px - 60px - 44px);min-height:420px;overflow:hidden}
 .preview-head{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);font-size:.85rem;font-weight:600;color:var(--muted)}
 .preview-head i{color:var(--brand);margin-right:6px}
 .preview-pages{flex:1;overflow:auto;padding:18px;background:var(--surface);display:flex;flex-direction:column;align-items:center;gap:16px}

@@ -503,9 +503,16 @@ window.RootsAnnex = (function () {
       document.body.appendChild(host);
       try {
         const table = host.firstElementChild;
-        const canvas = await paint(table, SCALE);
+        // grosse Blaetter: Aufloesung begrenzen (Canvas-Grenze der Browser)
+        // Aufloesung: rund 3 Bildpunkte je pt bei voller Satzbreite, hoechstens 8 MP
+        const tw = Math.max(1, table.offsetWidth), th = Math.max(1, table.offsetHeight);
+        const canvas = await paint(table, Math.min(SCALE, 1500 / tw, Math.sqrt(8e6 / (tw * th)), 14000 / th));
+        // Zeilengrenzen, damit ein geteiltes Blatt nie mitten in einer Zeile umbricht
+        const top = table.getBoundingClientRect().top;
+        const cuts = [...table.rows].map((tr) => Math.round((tr.getBoundingClientRect().bottom - top) * 10) / 10);
         const ref = `${colName(s.c1)}${s.r1 + 1}:${colName(s.c2)}${s.r2 + 1}`;
-        return await toResults(canvas, table.offsetWidth, table.offsetHeight, `${ws.name}!${ref}`);
+        const res = await toResult(canvas, table.offsetWidth, table.offsetHeight, `${ws.name}!${ref}`);
+        return [{ ...res, cuts }];
       } finally {
         host.remove();
       }
@@ -786,24 +793,6 @@ window.RootsAnnex = (function () {
       c = next;
     }
     throw new Error("Ausschnitt ist zu groß. Kleineren Bereich wählen.");
-  }
-
-  /** Sehr hohe Bereiche (ganzes Blatt) in Stuecke teilen, die je auf eine Anlagenseite passen. */
-  async function toResults(canvas, w, h, label) {
-    const MAX_RATIO = 1.15;           // Hoehe/Breite einer Anlagenseite
-    if (h / w <= MAX_RATIO * 1.1) return [await toResult(canvas, w, h, label)];
-    const sliceH = Math.floor(w * MAX_RATIO);
-    const k = canvas.height / h;
-    const parts = [];
-    for (let y = 0, n = 1; y < h; y += sliceH, n++) {
-      const hh = Math.min(sliceH, h - y);
-      const c = document.createElement("canvas");
-      c.width = canvas.width;
-      c.height = Math.round(hh * k);
-      c.getContext("2d").drawImage(canvas, 0, Math.round(y * k), c.width, c.height, 0, 0, c.width, c.height);
-      parts.push(await toResult(c, w, hh, `${label} (${n})`));
-    }
-    return parts;
   }
 
   async function sha256(bytes) {

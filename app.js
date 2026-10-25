@@ -221,6 +221,34 @@
     return fileUrls.get(sha) || "";
   }
 
+  /*
+   * Vorschau: PNG-Ausschnitte einmal als JPEG ablegen. pdf-lib dekodiert PNG in
+   * JavaScript (bei einem langen Excel-Blatt mehrere Sekunden je Neuzeichnen),
+   * JPEG uebernimmt es unveraendert. Das finale PDF nutzt weiter das PNG.
+   */
+  const previewJpegs = new Map();
+  async function previewFiles(inv) {
+    const out = new Map(files);
+    for (const im of inv?.annex?.images || []) {
+      const png = files.get(im?.sha);
+      if (!png || png[0] !== 0x89) continue;
+      if (!previewJpegs.has(im.sha)) {
+        previewJpegs.set(im.sha, (async () => {
+          const bmp = await createImageBitmap(new Blob([png], { type: "image/png" }));
+          const c = document.createElement("canvas");
+          c.width = bmp.width; c.height = bmp.height;
+          const ctx = c.getContext("2d");
+          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+          ctx.drawImage(bmp, 0, 0);
+          const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.9));
+          return new Uint8Array(await blob.arrayBuffer());
+        })().catch(() => png));
+      }
+      out.set(im.sha, await previewJpegs.get(im.sha));
+    }
+    return out;
+  }
+
   async function putFile(name, mime, bytes) {
     const local = await window.RootsAnnex.sha256(bytes);
     if (!files.has(local)) {
@@ -306,7 +334,7 @@
         }
         for (const shot of shots) {
           const sha = await putFile(`${file.name.replace(/\.[^.]+$/, "")}_Ausschnitt.png`, shot.mime, shot.bytes);
-          (a.images = a.images || []).push({ sha, w: shot.w, h: shot.h, label: shot.label, caption: "", source_sha: source });
+          (a.images = a.images || []).push({ sha, w: shot.w, h: shot.h, label: shot.label, caption: "", source_sha: source, ...(shot.cuts ? { cuts: shot.cuts } : {}) });
         }
       } finally {
         setBusy(false);
@@ -815,7 +843,7 @@
       if (!box || !state.edit) return;
       try {
         const regions = {};
-        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions, files });
+        const pdf = await window.RootsInvoicePdf.render(normalized(state.edit), state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, regions, files: await previewFiles(state.edit) });
         const pages = await window.RootsUI.renderPdf(pdf, box);
         if (pages) {
           state.regions = regions;
@@ -1264,7 +1292,7 @@
     });
     try {
       const inv = { ...e.data, number: e.data.number || "" };
-      const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, files });
+      const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false, preview: true, files: await previewFiles(inv) });
       await window.RootsUI.renderPdf(pdf, box.querySelector(".version-pages"));
     } catch (err) {
       box.querySelector(".version-pages").innerHTML = `<p class="cell-sub">${esc(err.message)}</p>`;
