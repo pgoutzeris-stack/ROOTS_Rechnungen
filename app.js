@@ -206,7 +206,55 @@
 
   const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
-  const fileBase = (number, customer, project) => ["Rechnung", number, customer, project].map((x, i) => safeName(x, i === 3 ? 80 : 40)).filter(Boolean).join("_");
+  const FILE_PATTERN_DEFAULT = "Rechnung_{nummer}_{kunde}_{projekt}";
+  const filePattern = () => String(state.settings?.seller?.file_pattern || "").trim() || FILE_PATTERN_DEFAULT;
+  /** Dateiname nach dem Namensschema aus den Einstellungen; leere Teile fallen weg. */
+  const fileBase = (number, customer, project, pattern = filePattern()) => {
+    const teile = { nummer: safeName(number, 40), kunde: safeName(customer, 40), projekt: safeName(project, 80), jahr: String(new Date().getFullYear()) };
+    return pattern.replace(/\{(nummer|kunde|projekt|jahr)\}/g, (_, k) => teile[k] || "")
+      .replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/_+/g, "_").replace(/^[_.-]+|[_.-]+$/g, "").slice(0, 180) || safeName(number) || "Rechnung";
+  };
+
+  /**
+   * Dateiname vor dem Speichern bestaetigen. Weicht er vom Schema ab, kommt
+   * einmal ein Hinweis (abschaltbar je Person) mit Link zum Schema.
+   */
+  async function confirmedName(proposal, ext, changed) {
+    const name = String(changed ?? proposal).trim().replace(/\.[a-z0-9]{2,4}$/i, "");
+    if (!name) return null;
+    if (name === proposal) return `${name}.${ext}`;
+    const me = String(state.user?.email || "").toLowerCase();
+    if (state.settings?.seller?.file_warn_off?.[me]) return `${safeFile(name)}.${ext}`;
+    const act = await showDialog({
+      icon: "fa-triangle-exclamation", tone: "bad",
+      title: "Dateiname weicht vom Schema ab",
+      html: `<p class="mono">${esc(proposal)}.${ext}</p><p class="cell-sub">Geändert zu</p><p class="mono">${esc(safeFile(name))}.${ext}</p>
+        <p class="cell-sub"><button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="file-settings">Namensschema in den Einstellungen</button></p>`,
+      actions: [{ label: "Nicht mehr fragen", value: "off" }, { label: "Schema verwenden", value: "schema" }, { label: "Trotzdem ändern", value: "ok", primary: true }],
+    });
+    if (act === null) return null;
+    if (act === "schema") return `${proposal}.${ext}`;
+    if (act === "off") {
+      try {
+        const seller = { ...(state.settings?.seller || {}) };
+        seller.file_warn_off = { ...(seller.file_warn_off || {}), [me]: true };
+        state.settings = (await api("settings_save", { settings: { seller } })).settings;
+      } catch (e) { toast(e.message, "err"); }
+    }
+    return `${safeFile(name)}.${ext}`;
+  }
+  const safeFile = (s) => String(s || "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").trim().slice(0, 180);
+
+  /** Pop-up mit vorbelegtem Dateinamen; liefert den bestaetigten Namen oder null. */
+  async function askFileName(proposal, ext, title) {
+    const act = await showDialog({
+      icon: "fa-file-pdf", title,
+      html: `<div class="mail-form"><label class="field"><span class="flabel">Dateiname</span><div class="fn-field"><input id="file-name" class="mono" value="${esc(proposal)}"><span class="fn-ext">.${esc(ext)}</span></div></label></div>`,
+      actions: [{ label: "Abbrechen", value: null }, { label: "Speichern", value: "ok", primary: true }],
+    });
+    if (act !== "ok") return null;
+    return confirmedName(proposal, ext, document.getElementById("file-name")?.value);
+  }
 
   /* --------------------------------------------------------- PDF-Assets --- */
 
@@ -1232,7 +1280,8 @@
     }
     setBusy(false);
     const draft = mailDraft(d);
-    const fileName = `${fileBase(d.number, d.customer_name, d.data?.project)}.pdf`;
+    const baseName = fileBase(d.number, d.customer_name, d.data?.project);
+    let fileName = `${baseName}.pdf`;
     const fromSaved = myMailFrom();
     const toSaved = draft.to;
     const act = await showDialog({
@@ -1243,7 +1292,7 @@
         <label class="field"><span class="flabel">An</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
         <label class="field"><span class="flabel">Betreff</span><input id="mail-subject" value="${esc(draft.subject)}"></label>
         <label class="field"><span class="flabel">Text</span><textarea id="mail-body" rows="9">${esc(draft.body)}</textarea></label>
-        <p class="cell-sub"><i class="fa-solid fa-paperclip"></i> <span class="mono">${esc(fileName)}</span></p>
+        <label class="field"><span class="flabel"><i class="fa-solid fa-paperclip"></i> Anhang</span><div class="fn-field"><input id="mail-file" class="mono" value="${esc(baseName)}"><span class="fn-ext">.pdf</span></div></label>
         <p class="cell-sub">Adressen werden gespeichert · <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button> · <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail herunterladen", value: "app", primary: true }],
@@ -1251,14 +1300,18 @@
     if (!act) return;
     const val = (sel) => String(document.getElementById(sel)?.value || "").trim();
     const mail = { from: val("mail-from"), to: val("mail-to"), subject: val("mail-subject"), body: document.getElementById("mail-body")?.value || "" };
+    const fileWish = val("mail-file");
     const tos = mail.to.split(/[;,]\s*/).filter(Boolean);
     if (!tos.length || !tos.every((t) => MAIL_RE.test(t))) return toast("Empfängeradresse fehlt oder ist ungültig", "err");
     if (mail.from && !MAIL_RE.test(mail.from)) return toast("Absenderadresse ungültig", "err");
     await rememberMailAddresses(mail, fromSaved, toSaved, draft.cust, d);
+    const chosen = await confirmedName(baseName, "pdf", fileWish);
+    if (!chosen) return;
+    fileName = chosen;
 
     if (act === "web") return openOutlookWeb(mail, pdf, fileName);
     const eml = new TextEncoder().encode(buildEml({ ...mail, to: tos.join(", "), pdf, fileName }));
-    const emlName = `${fileBase(d.number, d.customer_name, d.data?.project)}.eml`;
+    const emlName = fileName.replace(/\.pdf$/i, ".eml");
     const res = await saveEml(eml, emlName);
     if (res.ok) return toast("E-Mail in den Downloads, per Doppelklick in Outlook öffnen");
     const next = await showDialog({
@@ -1704,7 +1757,9 @@
     try {
       const res = await api("pdf", { id });
       const bytes = window.RootsFacturX.base64ToBytes(res.pdf);
-      download(bytes, `${fileBase(number, customer, project)}.pdf`, "application/pdf");
+      setBusy(false);
+      const name = await askFileName(fileBase(number, customer, project), "pdf", `Rechnung ${number} herunterladen`);
+      if (name) download(bytes, name, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -1985,6 +2040,14 @@
         ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> IBAN-Prüfziffer falsch</p>` : ""}
         <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>
+      <section class="card" id="file-settings">
+        <h3><i class="fa-solid fa-file-signature"></i> Dateinamen</h3>
+        <div class="fields">
+          <label class="field wide"><span class="flabel">Namensschema</span><input name="file_pattern" class="mono" value="${esc(filePattern())}" placeholder="${esc(FILE_PATTERN_DEFAULT)}"></label>
+        </div>
+        <p class="cell-sub">{nummer} · {kunde} · {projekt} · {jahr} · Beispiel: <span class="mono">${esc(fileBase("237-4496", "DANONE SA", "Deployment 1D2P"))}.pdf</span></p>
+        <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
+      </section>
       <section class="card" id="mail-settings">
         <h3><i class="fa-solid fa-paper-plane"></i> Rechnungsversand</h3>
         <div class="fields">
@@ -2140,6 +2203,11 @@
       const from = String(fd.get("mail_from") || "").trim();
       if (from && !MAIL_RE.test(from)) return toast("Absenderadresse ungültig", "err");
       seller.mail_senders = { ...(seller.mail_senders || {}), [state.user.email.toLowerCase()]: from };
+    }
+    if (fd.has("file_pattern")) {
+      const pat = String(fd.get("file_pattern") || "").trim();
+      if (pat && !/\{nummer\}/.test(pat)) return toast("Das Namensschema braucht {nummer}", "err");
+      seller.file_pattern = pat && pat !== FILE_PATTERN_DEFAULT ? pat : "";
     }
     if (fd.has("mail_text_de")) {
       seller.mail_texts = {};
