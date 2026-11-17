@@ -214,10 +214,135 @@
     // Kunde: Anzeigename aus der Kundenliste (Danone statt DANONE SA); eigenes Schema des Kunden geht vor.
     const kunde = state.customers.find((c) => c.name === customer || c.data?.display_name === customer);
     pattern = pattern || String(kunde?.data?.file_pattern || "").trim() || filePattern();
-    const teile = { nummer: safeName(number, 40), kunde: safeName(kunde?.data?.display_name || customer, 40), projekt: safeName(project, 80), jahr: String(new Date().getFullYear()) };
-    return pattern.replace(/\{(nummer|kunde|projekt|jahr)\}/g, (_, k) => teile[k] || "")
+    // Datum: Rechnungsdatum der Rechnung mit dieser Nummer, sonst heute.
+    const rd = String(state.invoices.find((i) => i.number && i.number === number)?.issue_date || "").slice(0, 10);
+    const dt = /^\d{4}-\d{2}-\d{2}$/.test(rd) ? rd : new Date().toISOString().slice(0, 10);
+    const [y, m] = dt.split("-");
+    const teile = {
+      nummer: safeName(number, 40), kunde: safeName(kunde?.data?.display_name || customer, 40),
+      kunde_voll: safeName(kunde?.name || customer, 60), projekt: safeName(project, 80),
+      jahr: y, jahr_kurz: y.slice(2), monat: m, quartal: "Q" + Math.ceil(Number(m) / 3),
+      datum: dt, datum_kompakt: dt.replace(/-/g, ""),
+    };
+    return pattern.replace(/\{([a-z_]+)\}/g, (_, k) => teile[k] || "")
       .replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/_+/g, "_").replace(/^[_.-]+|[_.-]+$/g, "").slice(0, 180) || safeName(number) || "Rechnung";
   };
+
+  // Baukasten fuer das Namensschema: Bausteine per Drag and Drop anordnen.
+  const PB_TOKENS = [
+    ["nummer", "Nummer", "fa-hashtag"], ["kunde", "Kunde", "fa-building"], ["kunde_voll", "Kunde voller Name", "fa-building-columns"],
+    ["projekt", "Projekt", "fa-diagram-project"], ["datum", "Datum", "fa-calendar-day"], ["datum_kompakt", "Datum kompakt", "fa-calendar"],
+    ["jahr", "Jahr", "fa-calendar-days"], ["jahr_kurz", "Jahr kurz", "fa-calendar-days"], ["monat", "Monat", "fa-calendar-week"], ["quartal", "Quartal", "fa-chart-pie"],
+  ];
+  const PB_TEXTS = ["Invoice", "Rechnung", "ROOTS"];
+  const PB_SEPS = [["_", "Unterstrich _"], ["-", "Bindestrich -"], [".", "Punkt ."]];
+  const pbParse = (pattern) => {
+    const sep = (String(pattern).replace(/\{[a-z_]+\}/g, "").match(/[_.-]/) || ["_"])[0];
+    const parts = [];
+    String(pattern).replace(/\{([a-z_]+)\}|[^{}]+/g, (m, v) => {
+      if (v) parts.push({ k: "var", v });
+      else m.split(/[_.\- ]+/).filter(Boolean).forEach((t) => parts.push({ k: "txt", v: t }));
+      return "";
+    });
+    return { sep, parts };
+  };
+  const pbSerialize = (sep, parts) => parts.map((p) => (p.k === "var" ? `{${p.v}}` : p.v)).join(sep);
+  const pbChip = (p, i) => {
+    const t = PB_TOKENS.find((x) => x[0] === p.v);
+    return p.k === "var"
+      ? `<span class="pb-chip" draggable="true" data-i="${i}"><i class="fa-solid ${t ? t[2] : "fa-cube"}"></i>${esc(t ? t[1] : p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`
+      : `<span class="pb-chip txt" draggable="true" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
+  };
+  /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
+  function patternBuilder(name, value, fallback = "") {
+    return `<div class="pb" data-fallback="${esc(fallback)}">
+      <input type="hidden" name="${esc(name)}" value="${esc(value)}">
+      <div class="pb-zone"></div>
+      <div class="pb-row"><select class="pb-sep" aria-label="Trenner">${PB_SEPS.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("")}</select><span class="pb-prev mono"></span></div>
+      <div class="pb-pal">${PB_TOKENS.map(([v, l, ic]) => `<span class="pb-chip pal" draggable="true" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`).join("")}
+        ${PB_TEXTS.map((t) => `<span class="pb-chip pal txt" draggable="true" data-add="txt:${esc(t)}">${esc(t)}</span>`).join("")}
+        <button type="button" class="pb-chip pal txt" data-add="txt:">+ Text</button>
+        ${fallback ? `<button type="button" class="link-btn pb-reset">Standard verwenden</button>` : ""}</div>
+    </div>`;
+  }
+  function pbRender(pb) {
+    const input = pb.querySelector("input[type=hidden]");
+    const own = input.value.trim();
+    const { sep, parts } = pbParse(own || pb.dataset.fallback || FILE_PATTERN_DEFAULT);
+    pb.querySelector(".pb-sep").value = sep;
+    pb.classList.toggle("inherit", !own && !!pb.dataset.fallback);
+    pb.querySelector(".pb-zone").innerHTML = parts.map(pbChip).join("") || `<span class="cell-sub">Bausteine hierher ziehen</span>`;
+    pb.querySelector(".pb-prev").textContent = fileBase("237-4496", "Danone", "Deployment 1D2P", own || pb.dataset.fallback || FILE_PATTERN_DEFAULT) + ".pdf";
+  }
+  function pbUpdate(pb, fn) {
+    const input = pb.querySelector("input[type=hidden]");
+    const cur = pbParse(input.value.trim() || pb.dataset.fallback || FILE_PATTERN_DEFAULT);
+    const next = fn(cur) || cur;
+    input.value = pbSerialize(next.sep, next.parts);
+    pbRender(pb);
+  }
+  const pbPart = (add) => {
+    const [k, ...rest] = add.split(":");
+    let v = rest.join(":");
+    if (k === "txt" && !v) v = safeName(prompt("Text für den Dateinamen") || "", 30);
+    return v ? { k, v } : null;
+  };
+  function pbDropIndex(zone, x, y) {
+    const chips = [...zone.querySelectorAll(".pb-chip:not(.dragging)")];
+    const hit = chips.findIndex((c) => { const r = c.getBoundingClientRect(); return y < r.bottom && (y < r.top || x < r.left + r.width / 2); });
+    return hit < 0 ? chips.length : hit;
+  }
+  function wirePatternBuilders(root) {
+    root.querySelectorAll(".pb").forEach((pb) => {
+      if (pb.dataset.wired) return pbRender(pb);
+      pb.dataset.wired = "1";
+      pbRender(pb);
+      const zone = pb.querySelector(".pb-zone");
+      let drag = null;
+      pb.addEventListener("dragstart", (e) => {
+        const c = e.target.closest(".pb-chip");
+        if (!c) return;
+        drag = c.dataset.add ? { add: c.dataset.add } : { from: Number(c.dataset.i) };
+        c.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", "pb");
+      });
+      pb.addEventListener("dragend", () => { pb.querySelectorAll(".dragging").forEach((c) => c.classList.remove("dragging")); zone.classList.remove("over"); drag = null; });
+      zone.addEventListener("dragover", (e) => { if (drag) { e.preventDefault(); zone.classList.add("over"); } });
+      zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove("over"); });
+      zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        zone.classList.remove("over");
+        if (!drag) return;
+        const d = drag, at = pbDropIndex(zone, e.clientX, e.clientY);
+        pbUpdate(pb, (cur) => {
+          let item;
+          if (d.add) { item = pbPart(d.add); if (!item) return; }
+          else { item = cur.parts[d.from]; cur.parts.splice(d.from, 1); }
+          cur.parts.splice(Math.min(at, cur.parts.length), 0, item);
+          return cur;
+        });
+      });
+      // Aus der Zone auf die Palette ziehen entfernt den Baustein.
+      const pal = pb.querySelector(".pb-pal");
+      pal.addEventListener("dragover", (e) => { if (drag && drag.from != null) e.preventDefault(); });
+      pal.addEventListener("drop", (e) => { e.preventDefault(); if (drag?.from != null) { const i = drag.from; pbUpdate(pb, (cur) => { cur.parts.splice(i, 1); return cur; }); } });
+      pb.addEventListener("click", (e) => {
+        const x = e.target.closest(".pb-x");
+        if (x) return pbUpdate(pb, (cur) => { cur.parts.splice(Number(x.dataset.i), 1); return cur; });
+        const a = e.target.closest("[data-add]");
+        if (a) { const item = pbPart(a.dataset.add); if (item) pbUpdate(pb, (cur) => { cur.parts.push(item); return cur; }); return; }
+        if (e.target.closest(".pb-reset")) { pb.querySelector("input[type=hidden]").value = ""; pbRender(pb); }
+      });
+      pb.addEventListener("dblclick", (e) => {
+        const c = e.target.closest(".pb-zone .pb-chip.txt");
+        if (!c) return;
+        const i = Number(c.dataset.i);
+        pbUpdate(pb, (cur) => { const v = safeName(prompt("Text", cur.parts[i].v) || "", 30); if (v) cur.parts[i].v = v; return cur; });
+      });
+      pb.querySelector(".pb-sep").addEventListener("change", (e) => pbUpdate(pb, (cur) => ({ ...cur, sep: e.target.value })));
+    });
+  }
 
   /**
    * Dateiname vor dem Speichern bestaetigen. Weicht er vom Schema ab, kommt
@@ -1980,8 +2105,8 @@
         <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
-        ${f("file_pattern", "Dateiname (eigenes Schema)", d.file_pattern, `class="mono" placeholder="${esc(filePattern())}"`)}
         ${f("due_days", "Zahlungsziel (Tage)", d.due_days, `inputmode="numeric" placeholder="aus Vorlage: ${esc(customerTemplate(c)?.data?.due_days ?? 30)}"`)}
+        <div class="field wide"><span class="flabel">Dateiname</span>${patternBuilder("file_pattern", d.file_pattern || "", filePattern())}</div>
       </div>`;
     $("#cust-form").insertAdjacentHTML("afterbegin", `
       <div class="buyer-head">
@@ -2001,6 +2126,7 @@
       } catch (err) { toast(err.message, "err"); }
     };
     window.RootsUI.enhance($("#cust-form"));
+    wirePatternBuilders($("#cust-form"));
     $("#cust-delete").classList.toggle("hidden", !c?.id);
     $("#cust-dialog").classList.add("open");
   }
@@ -2050,9 +2176,8 @@
       <section class="card" id="file-settings">
         <h3><i class="fa-solid fa-file-signature"></i> Dateinamen</h3>
         <div class="fields">
-          <label class="field wide"><span class="flabel">Namensschema</span><input name="file_pattern" class="mono" value="${esc(filePattern())}" placeholder="${esc(FILE_PATTERN_DEFAULT)}"></label>
+          <div class="field wide"><span class="flabel">Namensschema</span>${patternBuilder("file_pattern", filePattern())}</div>
         </div>
-        <p class="cell-sub">{nummer} · {kunde} · {projekt} · {jahr} · Beispiel: <span class="mono">${esc(fileBase("237-4496", "Danone", "Deployment 1D2P", filePattern()))}.pdf</span></p>
         <p class="cell-sub">Abweichendes Schema je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
         <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>
@@ -2068,6 +2193,7 @@
         <p class="cell-sub">{zeitraum} = Leistungsmonat · Empfänger je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
         <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>`;
+    wirePatternBuilders($("#settings-form"));
     renderSequences();
     renderTemplates();
   }
