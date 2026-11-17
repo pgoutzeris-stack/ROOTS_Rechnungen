@@ -271,21 +271,27 @@
   };
   /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
   function patternBuilder(name, value, fallback = "") {
+    const chip = ([v, l, ic]) => `<span class="pb-chip pal" draggable="true" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`;
+    const group = (label, html) => `<div class="pb-grp"><span class="pb-glabel">${label}</span><div class="pb-gchips">${html}</div></div>`;
+    const DATE = ["datum", "datum_kompakt", "jahr", "jahr_kurz", "monat", "quartal", "zeitraum"];
     return `<div class="pb" data-fallback="${esc(fallback)}">
       <input type="hidden" name="${esc(name)}" value="${esc(value)}">
       <div class="pb-zone"></div>
-      <div class="pb-row"><select class="pb-sep" aria-label="Trenner">${PB_SEPS.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("")}</select><span class="pb-prev mono"></span></div>
-      <div class="pb-pal">${PB_TOKENS.map(([v, l, ic]) => `<span class="pb-chip pal" draggable="true" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`).join("")}
-        ${PB_TEXTS.map((t) => `<span class="pb-chip pal txt" draggable="true" data-add="txt:${esc(t)}">${esc(t)}</span>`).join("")}
-        <button type="button" class="pb-chip pal txt" data-add="txt:">+ Text</button>
-        ${fallback ? `<button type="button" class="link-btn pb-reset">Standard verwenden</button>` : ""}</div>
+      <div class="pb-prev mono"></div>
+      <div class="pb-pal">
+        ${group("Angaben", PB_TOKENS.filter((t) => !DATE.includes(t[0])).map(chip).join(""))}
+        ${group("Datum", PB_TOKENS.filter((t) => DATE.includes(t[0])).map(chip).join(""))}
+        ${group("Text", PB_TEXTS.map((t) => `<span class="pb-chip pal txt" draggable="true" data-add="txt:${esc(t)}">${esc(t)}</span>`).join("") + `<button type="button" class="pb-chip pal txt" data-add="txt:">+ Eigener Text</button>`)}
+        <div class="pb-grp"><span class="pb-glabel">Trenner</span><div class="pb-seg" role="radiogroup">${PB_SEPS.map(([v, l]) => `<button type="button" class="pb-sepbtn" data-sep="${esc(v)}" title="${esc(l)}">${esc(v)}</button>`).join("")}</div>
+          ${fallback ? `<button type="button" class="link-btn pb-reset">Standard verwenden</button>` : ""}</div>
+      </div>
     </div>`;
   }
   function pbRender(pb) {
     const input = pb.querySelector("input[type=hidden]");
     const own = input.value.trim();
     const { sep, parts } = pbParse(own || pb.dataset.fallback || FILE_PATTERN_DEFAULT);
-    pb.querySelector(".pb-sep").value = sep;
+    pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.classList.toggle("on", b.dataset.sep === sep));
     pb.classList.toggle("inherit", !own && !!pb.dataset.fallback);
     pb.querySelector(".pb-zone").innerHTML = parts.map(pbChip).join("") || `<span class="cell-sub">Bausteine hierher ziehen</span>`;
     pb.querySelector(".pb-prev").textContent = fileBase("237-4496", "Danone", "Deployment 1D2P", own || pb.dataset.fallback || FILE_PATTERN_DEFAULT, { period_start: "2026-04-01", period_end: "2026-06-30", issue_date: "2026-07-03" }) + ".pdf";
@@ -356,7 +362,7 @@
         const i = Number(c.dataset.i);
         pbUpdate(pb, (cur) => { const v = safeName(prompt("Text", cur.parts[i].v) || "", 30); if (v) cur.parts[i].v = v; return cur; });
       });
-      pb.querySelector(".pb-sep").addEventListener("change", (e) => pbUpdate(pb, (cur) => ({ ...cur, sep: e.target.value })));
+      pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.addEventListener("click", () => pbUpdate(pb, (cur) => ({ ...cur, sep: b.dataset.sep }))));
     });
   }
 

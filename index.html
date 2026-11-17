@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=56"></script>
-<script src="richtext.js?v=56"></script>
-<script src="einvoice.js?v=56"></script>
-<script src="layout.js?v=56"></script>
-<script src="designer.js?v=56"></script>
-<script src="pdf.js?v=56"></script>
-<script src="schematron.js?v=56"></script>
-<script src="facturx.js?v=56"></script>
-<script src="annex.js?v=56"></script>
-<script src="app.js?v=56"></script>
+<script src="ui.js?v=57"></script>
+<script src="richtext.js?v=57"></script>
+<script src="einvoice.js?v=57"></script>
+<script src="layout.js?v=57"></script>
+<script src="designer.js?v=57"></script>
+<script src="pdf.js?v=57"></script>
+<script src="schematron.js?v=57"></script>
+<script src="facturx.js?v=57"></script>
+<script src="annex.js?v=57"></script>
+<script src="app.js?v=57"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -377,21 +377,27 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .field.flash input{border-color:var(--brand)}
 @media (prefers-reduced-motion:reduce){.field.flash{animation:none;outline:1px solid var(--brand)}}
 .pb{display:flex;flex-direction:column;gap:10px}
-.pb-zone{display:flex;flex-wrap:wrap;gap:6px;min-height:48px;padding:8px;border-radius:12px;background:var(--surface);transition:background .15s}
+.pb-zone{display:flex;flex-wrap:wrap;gap:6px;min-height:46px;padding:8px;border-radius:12px;background:var(--surface);transition:background .15s}
 .pb-zone.over{background:color-mix(in srgb,var(--brand) 10%,var(--surface))}
 .pb.inherit .pb-zone .pb-chip{opacity:.55}
-.pb-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:999px;background:color-mix(in srgb,var(--brand) 12%,transparent);color:var(--brand);font-size:.8rem;font-weight:500;cursor:grab;user-select:none;border:0;font-family:inherit}
+.pb-chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;background:color-mix(in srgb,var(--brand) 12%,transparent);color:var(--brand);font-size:.78rem;font-weight:500;cursor:grab;user-select:none;border:0;font-family:inherit}
 .pb-chip.txt{background:var(--card,#fff);color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
 .pb-chip.dragging{opacity:.35}
-.pb-chip i{font-size:.75rem}
+.pb-chip i{font-size:.72rem}
 .pb-x{background:none;border:0;padding:0 0 0 2px;color:inherit;opacity:.5;cursor:pointer;font-size:.7rem}
 .pb-x:hover{opacity:1}
-.pb-pal{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pb-prev{font-size:.78rem;color:var(--muted,var(--text));word-break:break-all;padding:0 4px}
+.pb-pal{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;align-items:start;margin-top:4px}
+.pb-grp{display:contents}
+.pb-glabel{font-size:.72rem;font-weight:500;color:var(--muted,var(--text));line-height:28px}
+.pb-gchips{display:flex;flex-wrap:wrap;gap:6px}
 .pb-pal .pb-chip{background:transparent;color:var(--muted,var(--text));box-shadow:inset 0 0 0 1px var(--line)}
 .pb-pal .pb-chip:hover{color:var(--brand)}
-.pb-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.pb-sep{width:auto;height:34px}
-.pb-prev{font-size:.8rem;color:var(--muted,var(--text));word-break:break-all}
+.pb-grp:last-child>.pb-seg{justify-self:start}
+.pb-seg{display:inline-flex;gap:2px;padding:2px;border-radius:999px;background:var(--surface);width:max-content}
+.pb-sepbtn{width:28px;height:24px;border:0;border-radius:999px;background:none;font:600 .85rem/1 ui-monospace,monospace;color:var(--muted,var(--text));cursor:pointer}
+.pb-sepbtn.on{background:var(--card,#fff);color:var(--brand);box-shadow:0 1px 3px rgba(15,23,42,.12)}
+.pb-reset{grid-column:2;justify-self:start;font-size:.78rem}
 #result-body p{color:var(--muted);font-size:.92rem;margin:0 0 1rem}
 #result-body .std-tags{justify-content:center}
 #result-body .kv{text-align:left}
