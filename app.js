@@ -97,7 +97,9 @@
   }
 
   /** Nummernkreis der Vorlage einer Rechnung. */
+  /** Kreis der Rechnung: eigener Kreis des Kunden vor dem Kreis der Vorlage. */
   function sequenceOf(inv) {
+    if (inv?.sequence_id) return state.sequences.find((q) => q.id === inv.sequence_id) || null;
     const tpl = state.templates.find((t) => t.id === inv?.template);
     return state.sequences.find((q) => q.id === tpl?.data?.sequence_id) || null;
   }
@@ -544,6 +546,7 @@
       annex: JSON.parse(JSON.stringify({ title: "", text: "", rows: [], ...(tpl.annex || {}), on: false })),
       layout: tpl.layout && tpl.layout.elements?.length ? JSON.parse(JSON.stringify(tpl.layout)) : undefined,
       customer_id: customer?.id || null,
+      ...(customer?.data?.sequence_id ? { sequence_id: customer.data.sequence_id } : {}),
     };
   }
 
@@ -692,9 +695,10 @@
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
               <div class="field" ${inv.number ? "" : 'style="grid-column:span 2"'}><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"} <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip">
-                  <b>${sequenceOf(inv) ? `Kreis ${esc(sequenceOf(inv).name)} · ${esc(sequenceOf(inv).prefix)}… · Schritt ${esc(sequenceOf(inv).step)}` : "Vorlage ohne Nummernkreis"}</b>
-                  <span>Vergabe beim Erstellen. Stift: eigene Nummer.</span>
-                  <span class="info-links"><button type="button" class="nav-tab" data-view="settings" data-scroll="seq-settings">Nummernkreise</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
+                  <b>Nächste freie Nummer${inv.number_manual ? " im Kreis" : ""}: ${esc(previewNumber(sequenceOf(inv)) || "–")}</b>
+                  <span>${sequenceOf(inv) ? `Aus dem Nummernkreis „${esc(sequenceOf(inv).name)}“ ${inv.sequence_id ? "des Kunden" : "der Vorlage"}. Jede Rechnung zählt um ${esc(sequenceOf(inv).step)} weiter.` : "Für diese Rechnung ist kein Nummernkreis hinterlegt."}</span>
+                  <span>Die Nummer wird beim Erstellen vergeben. Mit dem Stift lässt sich eine eigene setzen.</span>
+                  <span class="info-links"><button type="button" class="nav-tab" data-view="settings" data-scroll="seq-settings">Nummernkreise</button><button type="button" class="nav-tab" data-view="customers">Kunden</button></span>
                 </span></span></span>
                 <div class="num-field"><input value="${esc(shownNumber(inv))}" title="${esc(shownNumber(inv))}" class="mono" disabled>
                   ${inv.number ? "" : `<button type="button" class="icon-btn" data-act="number-edit" title="Nummer ändern"><i class="fa-solid fa-pen"></i></button>`}
@@ -1634,6 +1638,7 @@
         <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
+        <label class="field"><span class="flabel">Nummernkreis</span><select name="sequence_id"><option value="">Wie Vorlage</option>${state.sequences.map((q) => `<option value="${esc(q.id)}" ${d.sequence_id === q.id ? "selected" : ""}>${esc(q.name)} · ${esc(q.prefix)}</option>`).join("")}</select></label>
         ${f("due_days", "Zahlungsziel (Tage)", d.due_days, `inputmode="numeric" placeholder="aus Vorlage: ${esc(customerTemplate(c)?.data?.due_days ?? 30)}"`)}
       </div>`;
     $("#cust-form").insertAdjacentHTML("afterbegin", `
@@ -1721,6 +1726,7 @@
       <div class="card-head"><h3><i class="fa-solid fa-hashtag"></i> Nummernkreise</h3><button class="btn-ghost sm" data-act="seq-new"><i class="fa-solid fa-plus"></i> Nummernkreis</button></div>
       <div class="seq-list">${state.sequences.map((q) => {
         const used = state.templates.filter((t) => t.data?.sequence_id === q.id).map((t) => t.name);
+        const usedCust = state.customers.filter((c) => c.data?.sequence_id === q.id).map((c) => c.data?.display_name || c.name);
         const next = previewNumber(q);
         const n2 = previewNumbers(q, 3).slice(1).join(", ");
         return `
@@ -1737,7 +1743,8 @@
             <dl class="field wide seq-meta">
               <dt>Nächste Rechnung</dt><dd>${next ? `<b class="mono">${esc(next)}</b>` : "Startnummer fehlt"}</dd>
               ${n2 ? `<dt>Danach</dt><dd class="mono">${n2.split(", ").map(esc).join(" · ")}</dd>` : ""}
-              <dt>Gilt für Vorlagen</dt><dd>${used.length ? used.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("") : "Keiner Vorlage zugeordnet"}</dd>
+              <dt>Vorlagen</dt><dd>${used.length ? used.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("") : "keine"}</dd>
+              ${usedCust.length ? `<dt>Kunden mit eigenem Kreis</dt><dd>${usedCust.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("")}</dd>` : ""}
             </dl>
           </div>
           <div class="modal-actions">
@@ -2051,7 +2058,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, due_days: existing?.data?.due_days || "" } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, due_days: existing?.data?.due_days || "", sequence_id: existing?.data?.sequence_id || "" } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
@@ -2179,6 +2186,7 @@
         if (ct) { state.edit.tax_case = ct.data.tax_case; state.edit.lang = ct.data.lang; state.edit.template = ct.id; }
         if (d.contact) state.edit.ordered_by = d.contact;
         state.edit.customer_id = c.id;
+        if (d.sequence_id) state.edit.sequence_id = d.sequence_id; else delete state.edit.sequence_id;
         state.edit.due_days = dueDaysOf(c, ct?.data);
         if (/^\d{4}-\d{2}-\d{2}$/.test(state.edit.issue_date || "")) state.edit.due_date = addDays(state.edit.issue_date, state.edit.due_days);
         state.edit.buyer_logo = d.logo || "";
