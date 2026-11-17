@@ -2091,9 +2091,9 @@
             <label class="field"><span class="flabel">Schrittweite</span><input data-seq-f="step" inputmode="numeric" value="${esc(q.step)}" class="mono"></label>
             <label class="field"><span class="flabel">${q.confirmed_at ? "Nächste Nummer" : "Erste Rechnungsnummer"}</span><input data-seq-f="next_number" inputmode="numeric" value="${esc(q.next_number ?? "")}" placeholder="z. B. 4411" class="mono ${q.next_number == null ? "invalid" : ""}"></label>
           </div>
-          <div class="modal-actions">
-            <button class="btn-secondary" data-act="seq-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-            ${q.confirmed_at ? "" : `<button class="btn-primary" data-act="seq-confirm"><i class="fa-solid fa-lock-open"></i> Freigeben</button>`}
+          <div class="card-save">
+            ${q.confirmed_at ? "" : `<button class="btn-secondary" data-act="seq-confirm"><i class="fa-solid fa-lock-open"></i> Freigeben</button>`}
+            <button class="btn-primary" data-act="seq-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
           </div>
         </div>`;
       }).join("")}</div>`;
@@ -2144,7 +2144,7 @@
         ${t.id ? `<button class="btn-danger-ghost" data-act="tpl-delete" style="margin-right:auto">Löschen</button>` : ""}
         <button class="btn-secondary" data-act="tpl-cancel">Abbrechen</button>
         <button class="btn-secondary" data-act="tpl-design" style="margin-right:auto"><i class="fa-solid fa-pen-ruler"></i> Layout gestalten${d.layout?.elements?.length ? " · eigenes Layout" : ""}</button>
-        <button class="btn-primary" data-act="tpl-save"><i class="fa-solid fa-floppy-disk"></i> Vorlage speichern</button>
+        <button class="btn-primary" data-act="tpl-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
       </div>`;
     $('[data-tpl="data.lang"]').value = d.lang || "de";
     $('[data-tpl="data.tax_case"]').value = d.tax_case || "S19";
