@@ -108,11 +108,16 @@
     return inv?.number || inv?.number_manual || previewNumber(sequenceOf(inv));
   }
   function previewNumber(seq) {
-    if (!seq || seq.next_number == null) return "";
-    let n = Number(seq.next_number);
+    return previewNumbers(seq, 1)[0] || "";
+  }
+  /** Die naechsten count freien Nummern eines Kreises. */
+  function previewNumbers(seq, count) {
+    if (!seq || seq.next_number == null) return [];
+    const step = Number(seq.step) || 1;
     const used = new Set(state.invoices.map((i) => i.number).filter(Boolean));
-    while (used.has(seq.prefix + n)) n += Number(seq.step) || 1;
-    return seq.prefix + n;
+    const out = [];
+    for (let n = Number(seq.next_number); out.length < count; n += step) if (!used.has(seq.prefix + n)) out.push(seq.prefix + n);
+    return out;
   }
 
   async function refreshSequences() {
@@ -1273,8 +1278,15 @@
     });
     if (!go) return;
     await download(pdf, fileName, "application/pdf");
-    const q = new URLSearchParams({ to: mail.to.replace(/;\s*/g, ","), subject: mail.subject, body: mail.body });
-    openExternal(`https://outlook.office.com/mail/deeplink/compose?${q.toString().replace(/\+/g, "%20")}`);
+    const link = (body) => "https://outlook.office.com/mail/deeplink/compose?" + new URLSearchParams({ to: mail.to.replace(/;\s*/g, ","), subject: mail.subject, ...(body ? { body } : {}) }).toString().replace(/\+/g, "%20");
+    let url = link(mail.body);
+    // Das Intranet nimmt Links bis 2048 Zeichen an. Bei langem Text geht er ueber die Zwischenablage.
+    if (url.length > 2000) {
+      url = link("");
+      const copied = copyText(mail.body);
+      toast(copied ? "Text in der Zwischenablage, in Outlook einfügen" : "Text zu lang für den Link", copied ? "ok" : "err");
+    }
+    openExternal(url);
   }
 
   async function rememberMailAddresses(mail, fromSaved, toSaved, cust, d) {
@@ -1710,7 +1722,7 @@
       <div class="seq-list">${state.sequences.map((q) => {
         const used = state.templates.filter((t) => t.data?.sequence_id === q.id).map((t) => t.name);
         const next = previewNumber(q);
-        const n2 = q.next_number != null ? [1, 2].map((k) => q.prefix + (Number(q.next_number) + k * q.step)).join(", ") : "";
+        const n2 = previewNumbers(q, 3).slice(1).join(", ");
         return `
         <div class="seq-item" data-seq="${esc(q.id)}">
           <div class="seq-head">
@@ -1990,7 +2002,7 @@
             const item = btn.closest(".seq-item");
             const q = readSeq(item);
             if (q.next == null) return toast("Erste Rechnungsnummer fehlt", "err");
-            const first = q.prefix + q.next, then = [1, 2].map((k) => q.prefix + (q.next + k * q.step)).join(", ");
+            const [first, ...rest] = previewNumbers({ prefix: q.prefix, next_number: q.next, step: q.step }, 3), then = rest.join(", ");
             const ok = await showDialog({
               icon: "fa-hashtag", tone: "ok",
               title: `Nummernkreis „${q.name}“ freigeben?`,
