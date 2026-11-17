@@ -207,22 +207,38 @@
   const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
   // Einheitlich fuer alle Sprachen: Nummer vorn, damit die Dateien in Vergaberreihenfolge stehen.
-  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice_{kunde}_{projekt}";
+  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice_{kunde}_{projekt}_{zeitraum}";
   const filePattern = () => String(state.settings?.seller?.file_pattern || "").trim() || FILE_PATTERN_DEFAULT;
   /** Dateiname nach dem Namensschema aus den Einstellungen; leere Teile fallen weg. */
-  const fileBase = (number, customer, project, pattern) => {
+  /** Leistungszeitraum kurz: ganzes Quartal Q2_2025, ein Monat 2025-06, sonst von_bis. */
+  const periodTag = (ps, pe) => {
+    const ok = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "");
+    if (!ok(ps) && !ok(pe)) return "";
+    if (!ok(ps) || !ok(pe)) return (ps || pe).slice(0, 7);
+    const [y1, m1, d1] = ps.split("-").map(Number), [y2, m2] = pe.split("-").map(Number);
+    const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const fullEnd = Number(pe.slice(8)) === lastDay(y2, m2);
+    if (y1 === y2 && m1 === m2) return ps.slice(0, 7);
+    if (y1 === y2 && d1 === 1 && fullEnd && m1 % 3 === 1 && m2 === m1 + 2) return `Q${(m1 + 2) / 3}_${y1}`;
+    if (y1 === y2 && d1 === 1 && fullEnd && m1 === 1 && m2 === 12) return String(y1);
+    return `${ps.slice(0, 7)}_${pe.slice(0, 7)}`;
+  };
+  const fileBase = (number, customer, project, pattern, meta) => {
     // Kunde: Anzeigename aus der Kundenliste (Danone statt DANONE SA); eigenes Schema des Kunden geht vor.
     const kunde = state.customers.find((c) => c.name === customer || c.data?.display_name === customer);
     pattern = pattern || String(kunde?.data?.file_pattern || "").trim() || filePattern();
     // Datum: Rechnungsdatum der Rechnung mit dieser Nummer, sonst heute.
-    const rd = String(state.invoices.find((i) => i.number && i.number === number)?.issue_date || "").slice(0, 10);
+    const row = state.invoices.find((i) => i.number && i.number === number);
+    meta = meta || row?.data || {};
+    const rd = String(meta.issue_date || row?.issue_date || "").slice(0, 10);
     const dt = /^\d{4}-\d{2}-\d{2}$/.test(rd) ? rd : new Date().toISOString().slice(0, 10);
     const [y, m] = dt.split("-");
     const teile = {
-      nummer: safeName(number, 40), kunde: safeName(kunde?.data?.display_name || customer, 40),
+      nummer: String(number || "").replace(/[^\p{L}\p{N}-]+/gu, "_").replace(/^_|_$/g, "").slice(0, 40), kunde: safeName(kunde?.data?.display_name || customer, 40),
       kunde_voll: safeName(kunde?.name || customer, 60), projekt: safeName(project, 80),
       jahr: y, jahr_kurz: y.slice(2), monat: m, quartal: "Q" + Math.ceil(Number(m) / 3),
       datum: dt, datum_kompakt: dt.replace(/-/g, ""),
+      zeitraum: periodTag(String(meta.period_start || ""), String(meta.period_end || "")),
     };
     return pattern.replace(/\{([a-z_]+)\}/g, (_, k) => teile[k] || "")
       .replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/_+/g, "_").replace(/^[_.-]+|[_.-]+$/g, "").slice(0, 180) || safeName(number) || "Rechnung";
@@ -232,7 +248,7 @@
   const PB_TOKENS = [
     ["nummer", "Nummer", "fa-hashtag"], ["kunde", "Kunde", "fa-building"], ["kunde_voll", "Kunde voller Name", "fa-building-columns"],
     ["projekt", "Projekt", "fa-diagram-project"], ["datum", "Datum", "fa-calendar-day"], ["datum_kompakt", "Datum kompakt", "fa-calendar"],
-    ["jahr", "Jahr", "fa-calendar-days"], ["jahr_kurz", "Jahr kurz", "fa-calendar-days"], ["monat", "Monat", "fa-calendar-week"], ["quartal", "Quartal", "fa-chart-pie"],
+    ["jahr", "Jahr", "fa-calendar-days"], ["jahr_kurz", "Jahr kurz", "fa-calendar-days"], ["monat", "Monat", "fa-calendar-week"], ["quartal", "Quartal", "fa-chart-pie"], ["zeitraum", "Leistungszeitraum", "fa-calendar-check"],
   ];
   const PB_TEXTS = ["Invoice", "Rechnung", "ROOTS"];
   const PB_SEPS = [["_", "Unterstrich _"], ["-", "Bindestrich -"], [".", "Punkt ."]];
@@ -272,7 +288,7 @@
     pb.querySelector(".pb-sep").value = sep;
     pb.classList.toggle("inherit", !own && !!pb.dataset.fallback);
     pb.querySelector(".pb-zone").innerHTML = parts.map(pbChip).join("") || `<span class="cell-sub">Bausteine hierher ziehen</span>`;
-    pb.querySelector(".pb-prev").textContent = fileBase("237-4496", "Danone", "Deployment 1D2P", own || pb.dataset.fallback || FILE_PATTERN_DEFAULT) + ".pdf";
+    pb.querySelector(".pb-prev").textContent = fileBase("237-4496", "Danone", "Deployment 1D2P", own || pb.dataset.fallback || FILE_PATTERN_DEFAULT, { period_start: "2026-04-01", period_end: "2026-06-30", issue_date: "2026-07-03" }) + ".pdf";
   }
   function pbUpdate(pb, fn) {
     const input = pb.querySelector("input[type=hidden]");
@@ -1411,7 +1427,7 @@
     }
     setBusy(false);
     const draft = mailDraft(d);
-    const baseName = fileBase(d.number, d.customer_name, d.data?.project);
+    const baseName = fileBase(d.number, d.customer_name, d.data?.project, "", d.data);
     let fileName = `${baseName}.pdf`;
     const fromSaved = myMailFrom();
     const toSaved = draft.to;
@@ -1804,7 +1820,7 @@
     try {
       await ensureFiles(inv);
       const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false, files });
-      download(pdf, `ENTWURF_${fileBase(inv.number, inv.buyer.name, inv.project)}.pdf`, "application/pdf");
+      download(pdf, `ENTWURF_${fileBase(inv.number, inv.buyer.name, inv.project, "", inv)}.pdf`, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -2039,7 +2055,7 @@
         const pdf = window.RootsFacturX.base64ToBytes((await api("pdf", { id: inv.id })).pdf);
         const xml = new TextEncoder().encode(inv.xml || "");
         if ((await sha(pdf)) !== inv.pdf_sha256 || (await sha(xml)) !== inv.xml_sha256) throw new Error(`Rechnung ${inv.number}: Hash stimmt nicht. Export abgebrochen.`);
-        const base = `${String(inv.issue_date || "").slice(0, 4) || "ohne Datum"}/${fileBase(inv.number, inv.customer_name, inv.project ?? inv.data?.project)}`;
+        const base = `${String(inv.issue_date || "").slice(0, 4) || "ohne Datum"}/${fileBase(inv.number, inv.customer_name, inv.project ?? inv.data?.project, "", inv.data)}`;
         zip.file(`${base}.pdf`, pdf, { date: new Date(inv.finalized_at) });
         zip.file(`${base}_factur-x.xml`, xml, { date: new Date(inv.finalized_at) });
         manifest.push([inv.number, inv.issue_date, inv.customer_name, (inv.gross_cents / 100).toFixed(2).replace(".", ","), inv.status === "cancelled" ? "storniert" : "endgültig", inv.finalized_at, inv.cancelled_at || "", inv.cancel_reason || "", `${base}.pdf`, inv.pdf_sha256, inv.xml_sha256]);
@@ -2591,7 +2607,7 @@
           }
           case "send-mail": return sendInvoice(detail.id);
           case "dl-pdf": return downloadPdf(detail.id, detail.number, detail.customer_name, detail.project ?? detail.data?.project);
-          case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${fileBase(detail.number, detail.customer_name, detail.project ?? detail.data?.project)}_factur-x.xml`, "application/xml");
+          case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${fileBase(detail.number, detail.customer_name, detail.project ?? detail.data?.project, "", detail.data)}_factur-x.xml`, "application/xml");
           case "details": {
             const d = detail, v = d.validation || {};
             const row = (k, val) => `<div class="kv"><span>${esc(k)}</span><b>${val}</b></div>`;
