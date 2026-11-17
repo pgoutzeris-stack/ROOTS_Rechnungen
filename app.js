@@ -207,7 +207,7 @@
   const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
   // Einheitlich fuer alle Sprachen: Nummer vorn, damit die Dateien in Vergaberreihenfolge stehen.
-  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice_{kunde}_{projekt}_{zeitraum}";
+  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice_{kunde}_{projekt}";
   const filePattern = () => String(state.settings?.seller?.file_pattern || "").trim() || FILE_PATTERN_DEFAULT;
   /** Dateiname nach dem Namensschema aus den Einstellungen; leere Teile fallen weg. */
   /** Leistungszeitraum kurz: ganzes Quartal Q2_2025, ein Monat 2025-06, sonst von_bis. */
@@ -233,10 +233,11 @@
     const rd = String(meta.issue_date || row?.issue_date || "").slice(0, 10);
     const dt = /^\d{4}-\d{2}-\d{2}$/.test(rd) ? rd : new Date().toISOString().slice(0, 10);
     const [y, m] = dt.split("-");
+    const qSrc = /^\d{4}-\d{2}/.test(String(meta.period_start || "")) ? String(meta.period_start) : dt;
     const teile = {
       nummer: String(number || "").replace(/[^\p{L}\p{N}-]+/gu, "_").replace(/^_|_$/g, "").slice(0, 40), kunde: safeName(kunde?.data?.display_name || customer, 40),
       kunde_voll: safeName(kunde?.name || customer, 60), projekt: safeName(project, 80),
-      jahr: y, jahr_kurz: y.slice(2), monat: m, quartal: "Q" + Math.ceil(Number(m) / 3),
+      jahr: y, jahr_kurz: y.slice(2), monat: m, quartal: meta.quarter || "Q" + Math.ceil(Number(qSrc.slice(5, 7)) / 3),
       datum: dt, datum_kompakt: dt.replace(/-/g, ""),
       zeitraum: periodTag(String(meta.period_start || ""), String(meta.period_end || "")),
     };
@@ -248,7 +249,7 @@
   const PB_TOKENS = [
     ["nummer", "Nummer", "fa-hashtag"], ["kunde", "Kunde", "fa-building"], ["kunde_voll", "Kunde voller Name", "fa-building-columns"],
     ["projekt", "Projekt", "fa-diagram-project"], ["datum", "Datum", "fa-calendar-day"], ["datum_kompakt", "Datum kompakt", "fa-calendar"],
-    ["jahr", "Jahr", "fa-calendar-days"], ["jahr_kurz", "Jahr kurz", "fa-calendar-days"], ["monat", "Monat", "fa-calendar-week"], ["quartal", "Quartal", "fa-chart-pie"], ["zeitraum", "Leistungszeitraum", "fa-calendar-check"],
+    ["jahr", "Jahr", "fa-calendar-days"], ["jahr_kurz", "Jahr kurz", "fa-calendar-days"], ["monat", "Monat", "fa-calendar-week"], ["quartal", "Quartal", "fa-chart-pie"],
   ];
   const PB_TEXTS = ["Invoice", "Rechnung", "ROOTS"];
   const PB_SEPS = [["_", "Unterstrich _"], ["-", "Bindestrich -"], [".", "Punkt ."]];
@@ -270,6 +271,31 @@
       : `<span class="pb-chip txt" draggable="true" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
   };
   /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
+  /** Wirksames Namensschema fuer einen Kunden. */
+  const patternOf = (customer) => {
+    const k = state.customers.find((c) => c.name === customer || c.data?.display_name === customer);
+    return String(k?.data?.file_pattern || "").trim() || filePattern();
+  };
+  /** Quartal-Auswahl im Dateidialog, nur wenn das Schema {quartal} nutzt. Vorschlag aus Leistungsbeginn. */
+  function quarterSelect(customer, meta) {
+    if (!/\{quartal\}/.test(patternOf(customer))) return "";
+    const src = /^\d{4}-\d{2}/.test(String(meta?.period_start || "")) ? meta.period_start : String(meta?.issue_date || new Date().toISOString());
+    const cur = Math.ceil(Number(src.slice(5, 7)) / 3);
+    return `<label class="field fn-q"><span class="flabel">Quartal</span><select id="fn-quarter">${[1, 2, 3, 4].map((q) => `<option value="Q${q}" ${q === cur ? "selected" : ""}>Q${q}</option>`).join("")}</select></label>`;
+  }
+  /** Quartal-Wechsel baut den Namen neu, solange er nicht von Hand geaendert wurde. */
+  function wireQuarter(inputId, make, onChange) {
+    const sel = document.getElementById("fn-quarter"), inp = document.getElementById(inputId);
+    if (!sel || !inp) return;
+    sel.onchange = () => {
+      const before = make(sel.dataset.prev || null);
+      const next = make(sel.value);
+      if (inp.value.trim() === before || !inp.value.trim()) inp.value = next;
+      sel.dataset.prev = sel.value;
+      onChange?.(next);
+    };
+    sel.dataset.prev = sel.value;
+  }
   /** Rechnungsdaten (Leistungszeitraum usw.) nachladen; die Liste liefert sie nicht mit. */
   const metaCache = new Map();
   async function invoiceMeta(id) {
@@ -412,12 +438,14 @@
   const safeFile = (s) => String(s || "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").trim().slice(0, 180);
 
   /** Pop-up mit vorbelegtem Dateinamen; liefert den bestaetigten Namen oder null. */
-  async function askFileName(proposal, ext, title, customer) {
-    const act = await showDialog({
+  async function askFileName(proposal, ext, title, customer, make, meta) {
+    const shown = showDialog({
       icon: "fa-file-pdf", title,
-      html: `<div class="mail-form"><label class="field"><span class="flabel">Dateiname</span><div class="fn-field"><input id="file-name" class="mono" value="${esc(proposal)}"><span class="fn-ext">.${esc(ext)}</span></div></label></div>`,
+      html: `<div class="mail-form">${make ? quarterSelect(customer, meta) : ""}<label class="field"><span class="flabel">Dateiname</span><div class="fn-field"><input id="file-name" class="mono" value="${esc(proposal)}"><span class="fn-ext">.${esc(ext)}</span></div></label></div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Speichern", value: "ok", primary: true }],
     });
+    if (make) wireQuarter("file-name", make, (n) => { proposal = n; });
+    const act = await shown;
     if (act !== "ok") return null;
     return confirmedName(proposal, ext, document.getElementById("file-name")?.value, customer);
   }
@@ -1448,11 +1476,12 @@
     }
     setBusy(false);
     const draft = mailDraft(d);
-    const baseName = fileBase(d.number, d.customer_name, d.data?.project, "", d.data);
+    const makeName = (q) => fileBase(d.number, d.customer_name, d.data?.project, "", { ...(d.data || {}), quarter: q || undefined });
+    let baseName = makeName();
     let fileName = `${baseName}.pdf`;
     const fromSaved = myMailFrom();
     const toSaved = draft.to;
-    const act = await showDialog({
+    const shown = showDialog({
       icon: "fa-paper-plane",
       title: `Rechnung ${d.number} senden`,
       html: `<div class="mail-form">
@@ -1460,11 +1489,14 @@
         <label class="field"><span class="flabel">An</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
         <label class="field"><span class="flabel">Betreff</span><input id="mail-subject" value="${esc(draft.subject)}"></label>
         <label class="field"><span class="flabel">Text</span><textarea id="mail-body" rows="9">${esc(draft.body)}</textarea></label>
+        ${quarterSelect(d.customer_name, d.data)}
         <label class="field"><span class="flabel"><i class="fa-solid fa-paperclip"></i> Anhang</span><div class="fn-field"><input id="mail-file" class="mono" value="${esc(baseName)}"><span class="fn-ext">.pdf</span></div></label>
         <p class="cell-sub">Adressen werden gespeichert · <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button> · <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail herunterladen", value: "app", primary: true }],
     });
+    wireQuarter("mail-file", makeName, (n) => { baseName = n; });
+    const act = await shown;
     if (!act) return;
     const val = (sel) => String(document.getElementById(sel)?.value || "").trim();
     const mail = { from: val("mail-from"), to: val("mail-to"), subject: val("mail-subject"), body: document.getElementById("mail-body")?.value || "" };
@@ -1929,7 +1961,8 @@
       const bytes = window.RootsFacturX.base64ToBytes(res.pdf);
       setBusy(false);
       const meta = await invoiceMeta(id);
-      const name = await askFileName(fileBase(number, customer, project, "", meta), "pdf", `Rechnung ${number} herunterladen`, customer);
+      const make = (q) => fileBase(number, customer, project, "", { ...(meta || {}), quarter: q || undefined });
+      const name = await askFileName(make(), "pdf", `Rechnung ${number} herunterladen`, customer, make, meta);
       if (name) download(bytes, name, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
