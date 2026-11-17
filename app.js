@@ -1151,6 +1151,14 @@
   /* -------------------------------------------------------- Versand --- */
 
   const MAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+  const MAIL_TEXT_DEFAULT = {
+    en: "Dear all,\n\nPlease find attached our invoice for {zeitraum}.\n\nIf you had any questions, please just let me know.\n\nMany thanks for trusting ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n",
+    de: "Guten Tag,\n\nanbei erhalten Sie unsere Rechnung für {zeitraum}.\n\nVielen Dank für Ihr Vertrauen in ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n",
+  };
+  function mailText(lang) {
+    const t = state.settings?.seller?.mail_texts?.[lang];
+    return typeof t === "string" && t.trim() ? t : MAIL_TEXT_DEFAULT[lang];
+  }
   function myMailFrom() {
     const map = state.settings?.seller?.mail_senders || {};
     return map[String(state.user?.email || "").toLowerCase()] || "";
@@ -1168,9 +1176,8 @@
     const m = /^(\d{4})-(\d{2})/.exec(ref || "");
     const period = m ? `${MONTHS[en ? "en" : "de"][Number(m[2]) - 1]} ${m[1]}` : "";
     const subject = [String(d.number || "").replace(/-/g, "_"), `${en ? "Invoice" : "Rechnung"} ${short}`.trim(), data.project].filter(Boolean).join("_");
-    const body = en
-      ? `Dear all,\n\nPlease find attached our invoice${period ? ` for ${period}` : ""}.\n\nIf you had any questions, please just let me know.\n\nMany thanks for trusting ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n`
-      : `Guten Tag,\n\nanbei erhalten Sie unsere Rechnung${period ? ` für ${period}` : ""}.\n\nBei Fragen melden Sie sich gerne jederzeit bei mir.\n\nVielen Dank für Ihr Vertrauen in ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n`;
+    const tpl = mailText(en ? "en" : "de");
+    const body = tpl.replace(/ ?\{zeitraum\}/gi, period ? ` ${period}` : "").replace(/ ?\{period\}/gi, period ? ` ${period}` : "");
     return { to: cust?.data?.email || data.buyer?.email || "", subject, body, cust };
   }
 
@@ -1686,6 +1693,11 @@
         <div class="fields">
           <label class="field wide"><span class="flabel">Absender für ${esc(state.user?.email || "dich")}</span><input name="mail_from" type="email" value="${esc(myMailFrom())}" placeholder="${esc(state.user?.email || "name@roots-consultants.com")}"></label>
         </div>
+        <div class="fields">
+          <label class="field wide"><span class="flabel">Mailtext Deutsch</span><textarea name="mail_text_de" rows="8">${esc(mailText("de"))}</textarea></label>
+          <label class="field wide"><span class="flabel">Mailtext Englisch</span><textarea name="mail_text_en" rows="8">${esc(mailText("en"))}</textarea></label>
+        </div>
+        <p class="cell-sub">{zeitraum} wird durch den Leistungsmonat ersetzt, z. B. November 2026.</p>
         <p class="cell-sub">Empfänger je Kunde: Feld „Rechnungs-E-Mail“ unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </section>
       <div class="form-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Stammdaten speichern</button></div>`;
@@ -1840,6 +1852,13 @@
       const from = String(fd.get("mail_from") || "").trim();
       if (from && !MAIL_RE.test(from)) return toast("Absenderadresse ungültig", "err");
       seller.mail_senders = { ...(seller.mail_senders || {}), [state.user.email.toLowerCase()]: from };
+    }
+    if (fd.has("mail_text_de")) {
+      seller.mail_texts = {};
+      ["de", "en"].forEach((l) => {
+        const t = String(fd.get("mail_text_" + l) || "").replace(/\r\n/g, "\n");
+        if (t.trim() && t !== MAIL_TEXT_DEFAULT[l]) seller.mail_texts[l] = t;
+      });
     }
     seller.country = seller.country.toUpperCase();
     seller.vat_id = seller.vat_id.replace(/\s+/g, "").toUpperCase();
