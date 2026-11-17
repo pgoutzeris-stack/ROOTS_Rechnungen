@@ -687,10 +687,8 @@
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
               <div class="field" ${inv.number ? "" : 'style="grid-column:span 2"'}><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"} <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip">
-                  <b>Nummer kommt aus dem Nummernkreis der Vorlage</b>
-                  <span>${sequenceOf(inv) ? `Diese Vorlage nutzt den Kreis ${esc(sequenceOf(inv).name)} (${esc(sequenceOf(inv).prefix)}…, Schrittweite ${esc(sequenceOf(inv).step)}).` : "Dieser Vorlage ist kein Nummernkreis zugeordnet."}</span>
-                  <span>Vergeben wird die Nummer erst beim Erstellen, bis dahin ist sie voraussichtlich. Belegte Nummern werden übersprungen.</span>
-                  <span>Über den Stift lässt sich eine eigene Nummer setzen.</span>
+                  <b>${sequenceOf(inv) ? `Kreis ${esc(sequenceOf(inv).name)} · ${esc(sequenceOf(inv).prefix)}… · Schritt ${esc(sequenceOf(inv).step)}` : "Vorlage ohne Nummernkreis"}</b>
+                  <span>Vergabe beim Erstellen. Stift: eigene Nummer.</span>
                   <span class="info-links"><button type="button" class="nav-tab" data-view="settings" data-scroll="seq-settings">Nummernkreise</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
                 </span></span></span>
                 <div class="num-field"><input value="${esc(shownNumber(inv))}" title="${esc(shownNumber(inv))}" class="mono" disabled>
@@ -703,10 +701,8 @@
               ${input("period_start", "Leistung von", { type: "date" })}
               ${input("period_end", "Leistung bis", { type: "date" })}
               ${input("due_date", inv.due_days ? `Fällig am · ${esc(inv.due_days)} Tage` : "Fällig am", { type: "date" }).replace("</span>", ` <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip">
-                <b>Fälligkeit = Rechnungsdatum + Zahlungsziel</b>
-                <span>Das Zahlungsziel kommt vom Kunden, sonst aus der Vorlage, sonst 30 Tage.</span>
-                <span>Ändert sich das Rechnungsdatum, verschiebt sich die Fälligkeit mit. Ein selbst eingetragenes Datum bleibt stehen.</span>
-                <span>Pflichtangabe der E-Rechnung (EN 16931), darf nicht leer sein.</span>
+                <b>Rechnungsdatum + Zahlungsziel</b>
+                <span>Zahlungsziel aus Kunde, sonst Vorlage, sonst 30 Tage. Pflichtfeld der E-Rechnung.</span>
                 <span class="info-links"><button type="button" class="nav-tab" data-view="customers">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
               </span></span></span>`)}
               ${input("project", "Projekt", { wide: true })}
@@ -1234,12 +1230,12 @@
       icon: "fa-paper-plane",
       title: `Rechnung ${d.number} senden`,
       html: `<div class="mail-form">
-        <label class="field"><span class="flabel">Von${fromSaved ? "" : " · noch nicht hinterlegt"}</span><input id="mail-from" type="email" value="${esc(fromSaved)}" placeholder="${esc(state.user?.email || "")}"></label>
-        <label class="field"><span class="flabel">An${toSaved ? "" : " · beim Kunden noch nicht hinterlegt"}</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
+        <label class="field"><span class="flabel">Von${fromSaved ? "" : " · neu"}</span><input id="mail-from" type="email" value="${esc(fromSaved)}" placeholder="${esc(state.user?.email || "")}"></label>
+        <label class="field"><span class="flabel">An${toSaved ? "" : " · neu"}</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
         <label class="field"><span class="flabel">Betreff</span><input id="mail-subject" value="${esc(draft.subject)}"></label>
         <label class="field"><span class="flabel">Text</span><textarea id="mail-body" rows="9">${esc(draft.body)}</textarea></label>
         <p class="cell-sub"><i class="fa-solid fa-paperclip"></i> <span class="mono">${esc(fileName)}</span></p>
-        <p class="cell-sub">Neue Adressen werden gespeichert: Absender unter <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button>, Empfänger beim <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button>.</p>
+        <p class="cell-sub">Adressen werden gespeichert · <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button> · <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "In Outlook öffnen", value: "app", primary: true }],
     });
@@ -1259,8 +1255,8 @@
       icon: ok ? "fa-envelope-open-text" : "fa-triangle-exclamation", tone: ok ? "" : "bad",
       title: ok ? "Hat sich Outlook geöffnet?" : "Outlook ließ sich nicht öffnen",
       html: ok
-        ? `<p>Die E-Mail liegt als <span class="mono">${esc(emlName)}</span> in den Downloads. Öffnet sie sich nicht von selbst in Outlook, die Datei doppelklicken. Auf dem Mac öffnet sie sich in Outlook, wenn Outlook als Standard für .eml-Dateien eingestellt ist.</p>`
-        : `<p>Die E-Mail mit Anhang ließ sich nicht übergeben.</p>`,
+        ? `<p>Sonst <span class="mono">${esc(emlName)}</span> in den Downloads doppelklicken.</p>`
+        : "",
       actions: [{ label: ok ? "Ja, fertig" : "Schließen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail erneut speichern", value: "eml", primary: !ok }],
     });
     if (next === "web") return openOutlookWeb(mail, pdf, fileName);
@@ -1271,7 +1267,7 @@
     const go = await showDialog({
       icon: "fa-globe",
       title: "Outlook im Browser öffnen?",
-      html: `<p>Empfänger, Betreff und Text sind eingetragen. Den Anhang kann der Browser nicht übergeben: <span class="mono">${esc(fileName)}</span> wird gleichzeitig gespeichert und muss in Outlook per Büroklammer angehängt werden.</p>`,
+      html: `<p>Ohne Anhang. <span class="mono">${esc(fileName)}</span> wird gespeichert und muss angehängt werden.</p>`,
       actions: [{ label: "Abbrechen", value: false }, { label: "Öffnen", value: true, primary: true }],
     });
     if (!go) return;
@@ -1697,8 +1693,7 @@
           <label class="field wide"><span class="flabel">Mailtext Deutsch</span><textarea name="mail_text_de" rows="8">${esc(mailText("de"))}</textarea></label>
           <label class="field wide"><span class="flabel">Mailtext Englisch</span><textarea name="mail_text_en" rows="8">${esc(mailText("en"))}</textarea></label>
         </div>
-        <p class="cell-sub">{zeitraum} wird durch den Leistungsmonat ersetzt, z. B. November 2026.</p>
-        <p class="cell-sub">Empfänger je Kunde: Feld „Rechnungs-E-Mail“ unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
+        <p class="cell-sub">{zeitraum} = Leistungsmonat · Empfänger je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </section>
       <div class="form-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Stammdaten speichern</button></div>`;
     renderSequences();
