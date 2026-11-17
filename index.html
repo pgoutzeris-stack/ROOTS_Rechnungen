@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=43"></script>
-<script src="richtext.js?v=43"></script>
-<script src="einvoice.js?v=43"></script>
-<script src="layout.js?v=43"></script>
-<script src="designer.js?v=43"></script>
-<script src="pdf.js?v=43"></script>
-<script src="schematron.js?v=43"></script>
-<script src="facturx.js?v=43"></script>
-<script src="annex.js?v=43"></script>
-<script src="app.js?v=43"></script>
+<script src="ui.js?v=44"></script>
+<script src="richtext.js?v=44"></script>
+<script src="einvoice.js?v=44"></script>
+<script src="layout.js?v=44"></script>
+<script src="designer.js?v=44"></script>
+<script src="pdf.js?v=44"></script>
+<script src="schematron.js?v=44"></script>
+<script src="facturx.js?v=44"></script>
+<script src="annex.js?v=44"></script>
+<script src="app.js?v=44"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -74,7 +74,7 @@ button:disabled{cursor:not-allowed}
 .sec-pill i{color:var(--brand)}
 .sec-pill.warn i{color:#d97706}
 .sec-pill.bad i{color:#dc2626}
-.sec-pop{display:none;position:absolute;right:0;top:100%;margin-top:8px;width:320px;z-index:300;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.14);font-size:.8125rem;line-height:1.4}
+.sec-pop{display:none;position:absolute;right:0;top:100%;margin-top:8px;width:340px;max-height:72vh;overflow:auto;z-index:300;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.14);font-size:.8125rem;line-height:1.4}
 .sec-pop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px}
 .sec-wrap:hover .sec-pop,.sec-wrap:focus-within .sec-pop{display:block}
 .sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
@@ -577,6 +577,49 @@ input:disabled{background:var(--surface);color:var(--muted)}
   .line-row{grid-template-columns:1fr 110px 34px}.line-row input:nth-child(2){grid-column:1/span 3;order:3}
   .annex-row{grid-template-columns:1fr 100px 34px}.annex-row .chk{display:none}
 }
+
+/* Übersicht */
+.ov-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 20px}
+.ov-head h2{margin:0}
+.ov-stamp{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:8px}
+.ov-live{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.5);animation:ovPulse 2s infinite}
+@keyframes ovPulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.45)}70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+.ov-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.ov-tile{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;box-shadow:var(--shadow);position:relative;overflow:hidden;opacity:0;transform:translateY(12px);animation:ovIn .6s cubic-bezier(.2,.7,.2,1) forwards;transition:transform .2s,box-shadow .2s}
+.ov-tile:hover{transform:translateY(-3px);box-shadow:0 14px 32px rgba(15,23,42,.10)}
+.ov-tile.hero{background:linear-gradient(135deg,var(--brand),#5b9bff);color:#fff;border-color:transparent}
+.ov-tile.hero .ov-k,.ov-tile.hero .ov-sub{color:rgba(255,255,255,.85)}
+.ov-tile .ov-ic{position:absolute;right:18px;top:18px;font-size:1.1rem;color:var(--brand);opacity:.35}
+.ov-tile.hero .ov-ic{color:#fff;opacity:.5}
+.ov-k{font-size:.8rem;color:var(--muted);font-weight:500}
+.ov-v{font-size:1.75rem;font-weight:700;margin:8px 0 4px;letter-spacing:-.01em}
+.ov-sub{font-size:.78rem;color:var(--muted)}
+@keyframes ovIn{to{opacity:1;transform:none}}
+.ov-grid{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.ov-card{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow);opacity:0;transform:translateY(12px);animation:ovIn .6s cubic-bezier(.2,.7,.2,1) forwards}
+.ov-card h3{margin:0 0 16px;font-size:1rem}
+.ov-bars{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;align-items:end;height:200px;border-bottom:1px solid var(--line);padding-top:24px}
+.ov-bar{position:relative;height:100%;display:flex;align-items:flex-end;justify-content:center;cursor:default}
+.ov-bar i{display:block;width:100%;max-width:32px;background:var(--brand);border-radius:4px 4px 0 0;height:0;transition:height .9s cubic-bezier(.2,.7,.2,1),opacity .2s;min-height:0}
+.ov-bar.zero i{background:var(--line);min-height:2px}
+.ov-bar:hover i{opacity:.8}
+.ov-bar .ov-tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:6px 10px;border-radius:8px;font-size:.75rem;white-space:nowrap;z-index:5;pointer-events:none}
+.ov-bar:hover .ov-tip{display:block}
+.ov-months{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;margin-top:8px;font-size:.72rem;color:var(--muted);text-align:center}
+.ov-list{display:flex;flex-direction:column;gap:12px}
+.ov-li{display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:.85rem}
+.ov-li .ov-track{grid-column:1/-1;height:8px;border-radius:4px;background:var(--surface);overflow:hidden}
+.ov-li .ov-track i{display:block;height:100%;width:0;background:var(--brand);border-radius:4px;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+.ov-li b{font-weight:600}
+.ov-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ov-empty{color:var(--muted);font-size:.85rem}
+.ov-act{display:flex;flex-direction:column}
+.ov-act button{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px 0;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.ov-act button:last-child{border-bottom:0}
+.ov-act button:hover .ov-name{color:var(--brand)}
+.ov-grid2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:16px}
+@media (max-width:1100px){.ov-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.ov-grid,.ov-grid2{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.ov-tile,.ov-card{animation:none;opacity:1;transform:none}.ov-bar i,.ov-li .ov-track i{transition:none}.ov-live{animation:none}}
 </style>
 </head>
 <body>
@@ -598,7 +641,9 @@ input:disabled{background:var(--surface);color:var(--muted)}
         <span class="sec-pill" id="sec-pill"><i class="fa-solid fa-lock"></i> <span id="sec-label">Geschützt</span></span>
         <div class="sec-pop" role="tooltip">
           <div class="sec-head"><b>Sicherheit und Prüfung</b><button type="button" class="link-btn" id="sec-recheck">Neu prüfen</button></div>
-          <div class="sec-group">Schutz</div>
+          <div class="sec-group">Zugriff</div>
+          <div id="sec-access"></div>
+          <div class="sec-group">Daten</div>
           <div id="sec-protect"></div>
           <div class="sec-group">Prüfwerkzeuge</div>
           <div id="sec-tools"></div>
@@ -612,6 +657,7 @@ input:disabled{background:var(--surface);color:var(--muted)}
   <div class="dash-body">
     <aside class="dash-sidebar">
       <nav class="dash-nav">
+        <button class="dash-nav-item nav-tab" data-view="overview"><i class="fa-solid fa-chart-line"></i> Übersicht</button>
         <span class="dash-nav-section">Rechnungen</span>
         <button class="dash-nav-item filter-pill active" data-filter="all"><i class="fa-solid fa-file-invoice"></i> Alle<span class="count">0</span></button>
         <button class="dash-nav-item filter-pill" data-filter="draft"><i class="fa-regular fa-file-lines"></i> Entwürfe<span class="count">0</span></button>
@@ -643,6 +689,7 @@ input:disabled{background:var(--surface);color:var(--muted)}
         <section data-panel="edit" class="hidden"><div id="editor"></div></section>
         <section data-panel="detail" class="hidden"><div id="detail"></div></section>
 
+        <section data-panel="overview" class="hidden" id="overview"></section>
         <section data-panel="customers" class="hidden">
           <div class="list-head"><button class="btn-secondary" data-act="new-customer"><i class="fa-solid fa-user-plus"></i> Kunde</button></div>
           <div class="table-wrap">

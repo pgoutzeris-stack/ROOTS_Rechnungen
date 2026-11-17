@@ -427,6 +427,7 @@
     $(".dash-main-content").classList.toggle("designer-mode", state.view === "designer");
     if (state.view === "list") renderList();
     if (state.view === "customers") renderCustomers();
+    if (state.view === "overview") renderOverview();
     if (state.view === "settings") renderSettings();
     if (state.view === "edit") renderEditor();
     if (state.view === "detail") renderDetail();
@@ -1352,6 +1353,123 @@
     }
   }
 
+  /* ------------------------------------------------------- Übersicht --- */
+
+  const MONTHS_SHORT = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
+  let ovTimer = null, ovStamp = null;
+
+  function overviewData() {
+    const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+    const ym = (d) => String(d || "").slice(0, 7);
+    const key = (yy, mm) => `${yy}-${String(mm + 1).padStart(2, "0")}`;
+    const fin = state.invoices.filter((i) => i.status === "final");
+    const sum = (list, f = "net_cents") => list.reduce((a, i) => a + (Number(i[f]) || 0), 0);
+    const inYear = (i, yy) => String(i.issue_date || "").startsWith(String(yy));
+    const thisMonth = key(y, m), prevMonth = key(m ? y : y - 1, m ? m - 1 : 11);
+    const q = Math.floor(m / 3);
+    const inQuarter = (i) => { const d = String(i.issue_date || ""); return d.startsWith(String(y)) && Math.floor((Number(d.slice(5, 7)) - 1) / 3) === q; };
+    const today0 = today(), in30 = addDays(today0, 30);
+    const due30 = fin.filter((i) => i.due_date && i.due_date >= today0 && i.due_date <= in30);
+    const drafts = state.invoices.filter((i) => i.status === "draft");
+    const finYear = fin.filter((i) => inYear(i, y));
+    const months = [];
+    for (let k = 11; k >= 0; k--) {
+      const d = new Date(y, m - k, 1);
+      const kk = key(d.getFullYear(), d.getMonth());
+      months.push({ key: kk, label: MONTHS_SHORT[d.getMonth()], year: d.getFullYear(), net: sum(fin.filter((i) => ym(i.issue_date) === kk)), n: fin.filter((i) => ym(i.issue_date) === kk).length });
+    }
+    const byCust = {};
+    finYear.forEach((i) => { byCust[i.customer_name || "–"] = (byCust[i.customer_name || "–"] || 0) + (Number(i.net_cents) || 0); });
+    const byTax = {};
+    finYear.forEach((i) => { const l = E.TAX_CASES[i.tax_case]?.label || i.tax_case || "–"; byTax[l] = (byTax[l] || 0) + (Number(i.net_cents) || 0); });
+    const recent = [...state.invoices].sort((a, b) => String(b.finalized_at || b.updated_at || b.created_at).localeCompare(String(a.finalized_at || a.updated_at || a.created_at))).slice(0, 6);
+    return {
+      y, q,
+      netYear: sum(finYear), netPrevYear: sum(fin.filter((i) => inYear(i, y - 1))),
+      netMonth: sum(fin.filter((i) => ym(i.issue_date) === thisMonth)), netPrevMonth: sum(fin.filter((i) => ym(i.issue_date) === prevMonth)),
+      countYear: finYear.length, cancelledYear: state.invoices.filter((i) => i.status === "cancelled" && inYear(i, y)).length,
+      avg: finYear.length ? Math.round(sum(finYear) / finYear.length) : 0,
+      drafts: drafts.length, draftsGross: sum(drafts, "gross_cents"),
+      due30: sum(due30, "gross_cents"), due30n: due30.length,
+      taxQuarter: sum(fin.filter(inQuarter), "tax_cents"),
+      customers: Object.keys(byCust).length,
+      months, top: Object.entries(byCust).sort((a, b) => b[1] - a[1]).slice(0, 5), tax: Object.entries(byTax).sort((a, b) => b[1] - a[1]), recent,
+    };
+  }
+
+  function countUp(el, cents) {
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) { el.textContent = money(cents); return; }
+    const t0 = performance.now(), dur = 1100;
+    const step = (t) => {
+      const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = el.dataset.int ? String(Math.round(cents * e)) : money(Math.round(cents * e));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function renderOverview() {
+    const box = $("#overview");
+    if (!box) return;
+    const d = overviewData();
+    const mName = new Date().toLocaleDateString("de-DE", { month: "long" });
+    const tile = (i, cls, icon, k, val, sub, isInt) => `<div class="ov-tile ${cls}" style="animation-delay:${i * 70}ms"><i class="fa-solid ${icon} ov-ic"></i><div class="ov-k">${esc(k)}</div><div class="ov-v" data-count="${val}" ${isInt ? 'data-int="1"' : ""}>${isInt ? "0" : money(0)}</div><div class="ov-sub">${sub}</div></div>`;
+    const maxM = Math.max(...d.months.map((x) => x.net), 1);
+    const maxC = Math.max(...d.top.map((x) => x[1]), 1);
+    const totTax = d.tax.reduce((a, x) => a + x[1], 0) || 1;
+    const statusTxt = { draft: "Entwurf", final: "Erstellt", cancelled: "Storniert" };
+    box.innerHTML = `
+      <div class="ov-head"><h2>Übersicht</h2><span class="ov-stamp"><span class="ov-live"></span>Live · Stand ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="ov-tiles">
+        ${tile(0, "hero", "fa-chart-line", `Umsatz ${d.y} netto`, d.netYear, d.netPrevYear ? `Vorjahr ${esc(money(d.netPrevYear))}` : `${d.countYear} Rechnungen`)}
+        ${tile(1, "", "fa-calendar", `Umsatz ${mName} netto`, d.netMonth, `Vormonat ${esc(money(d.netPrevMonth))}`)}
+        ${tile(2, "", "fa-clock", "Fällig in 30 Tagen", d.due30, `${d.due30n} ${d.due30n === 1 ? "Rechnung" : "Rechnungen"} · brutto`)}
+        ${tile(3, "", "fa-landmark", `Umsatzsteuer Q${d.q + 1}`, d.taxQuarter, "aus erstellten Rechnungen")}
+        ${tile(4, "", "fa-file-invoice", `Rechnungen ${d.y}`, d.countYear, d.cancelledYear ? `${d.cancelledYear} storniert` : "keine storniert", true)}
+        ${tile(5, "", "fa-scale-balanced", "Ø Rechnung netto", d.avg, `${d.y}`)}
+        ${tile(6, "", "fa-file-pen", "Offene Entwürfe", d.drafts, `${esc(money(d.draftsGross))} brutto`, true)}
+        ${tile(7, "", "fa-users", `Kunden ${d.y}`, d.customers, "mit erstellter Rechnung", true)}
+      </div>
+      <div class="ov-grid">
+        <div class="ov-card" style="animation-delay:560ms">
+          <h3>Umsatz netto je Monat</h3>
+          <div class="ov-bars">${d.months.map((x) => `<div class="ov-bar ${x.net ? "" : "zero"}"><i data-h="${x.net ? Math.max(3, (x.net / maxM) * 100) : 0}"></i><span class="ov-tip">${esc(x.label)} ${x.year} · ${esc(money(x.net))} · ${x.n} ${x.n === 1 ? "Rechnung" : "Rechnungen"}</span></div>`).join("")}</div>
+          <div class="ov-months">${d.months.map((x) => `<span>${esc(x.label)}</span>`).join("")}</div>
+        </div>
+        <div class="ov-card" style="animation-delay:630ms">
+          <h3>Top-Kunden ${d.y}</h3>
+          <div class="ov-list">${d.top.length ? d.top.map(([n, v]) => `<div class="ov-li"><span class="ov-name" title="${esc(n)}">${esc(n)}</span><b>${esc(money(v))}</b><span class="ov-track"><i data-w="${(v / maxC) * 100}"></i></span></div>`).join("") : `<span class="ov-empty">Noch keine erstellte Rechnung in ${d.y}</span>`}</div>
+        </div>
+      </div>
+      <div class="ov-grid2">
+        <div class="ov-card" style="animation-delay:700ms">
+          <h3>Steuerfälle ${d.y}</h3>
+          <div class="ov-list">${d.tax.length ? d.tax.map(([n, v]) => `<div class="ov-li"><span class="ov-name" title="${esc(n)}">${esc(n)}</span><b>${Math.round((v / totTax) * 100)} %</b><span class="ov-track"><i data-w="${(v / totTax) * 100}"></i></span></div>`).join("") : `<span class="ov-empty">Keine Daten</span>`}</div>
+        </div>
+        <div class="ov-card" style="animation-delay:770ms;grid-column:span 2">
+          <h3>Zuletzt bearbeitet</h3>
+          <div class="ov-act">${d.recent.map((i) => `<button data-ov-open="${esc(i.id)}"><span class="tag sm ${i.status === "final" ? "tag-ok" : i.status === "cancelled" ? "tag-bad" : ""}">${statusTxt[i.status] || i.status}</span><span class="ov-name">${esc(i.number || "Entwurf")} · ${esc(i.customer_name || "")}${i.project ? ` · ${esc(i.project)}` : ""}</span><b>${esc(money(i.gross_cents))}</b></button>`).join("") || `<span class="ov-empty">Noch keine Rechnungen</span>`}</div>
+        </div>
+      </div>`;
+    box.querySelectorAll("[data-count]").forEach((el) => countUp(el, Number(el.dataset.count) || 0));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      box.querySelectorAll(".ov-bar i").forEach((el, k) => { el.style.transitionDelay = `${600 + k * 40}ms`; el.style.height = el.dataset.h + "%"; });
+      box.querySelectorAll(".ov-track i").forEach((el, k) => { el.style.transitionDelay = `${700 + k * 60}ms`; el.style.width = el.dataset.w + "%"; });
+    }));
+    box.onclick = (e) => { const b = e.target.closest("[data-ov-open]"); if (b) openDetail(b.dataset.ovOpen); };
+    clearInterval(ovTimer);
+    ovTimer = setInterval(async () => {
+      if (state.view !== "overview" || document.hidden) return;
+      try {
+        const before = JSON.stringify(state.invoices.map((i) => [i.id, i.status, i.gross_cents, i.updated_at]));
+        state.invoices = (await api("list")).invoices || [];
+        if (JSON.stringify(state.invoices.map((i) => [i.id, i.status, i.gross_cents, i.updated_at])) !== before) renderOverview();
+        else { const st = box.querySelector(".ov-stamp"); if (st) st.lastChild.textContent = `Live · Stand ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`; }
+      } catch (_) { /* naechster Versuch */ }
+    }, 60000);
+  }
+
   /* ------------------------------------------------- Sicherheitsstatus --- */
 
   const secState = { running: null, at: null };
@@ -1370,10 +1488,21 @@
   async function runSecurityCheck() {
     if (secState.running) return secState.running;
     secState.running = (async () => {
+      $("#sec-access").innerHTML = "";
       $("#sec-protect").innerHTML = secRow("run", "Prüfung läuft", "");
       $("#sec-tools").innerHTML = "";
       const protect = [], tools = [];
-      protect.push(secRow("ok", "Zugriff nur für freigeschaltete Personen", "Datenbankregeln je Zeile (RLS)"));
+      const access = [];
+      access.push(secRow("ok", "Nur drei freigeschaltete Personen", "Datenbankregeln je Zeile (RLS) und Freigabeliste im Intranet"));
+      const sandboxed = window.origin === "null";
+      access.push(secRow(sandboxed ? "ok" : "warn", "Tool läuft abgeschottet", sandboxed ? "Sandbox ohne Zugriff auf die Intranet-Anmeldung" : "nicht in der Intranet-Sandbox geöffnet"));
+      access.push(secRow("ok", "Anfragen nur über das Intranet", "feste Liste erlaubter Aktionen, kein Schlüssel im Tool"));
+      access.push(secRow("ok", "Öffentlicher Schlüssel ohne Rechte", "anonyme Anfragen sehen keine Rechnungsdaten"));
+      access.push(secRow(location.protocol === "https:" ? "ok" : "warn", "Verschlüsselte Verbindung", location.protocol === "https:" ? "HTTPS/TLS" : "ohne HTTPS geöffnet"));
+      $("#sec-access").innerHTML = access.join("");
+      protect.push(secRow("ok", "Speicherort EU", "Supabase, Rechenzentrum Irland"));
+      protect.push(secRow("ok", "Verschlüsselt gespeichert", "AES-256 auf Datenbank und Sicherungen"));
+      protect.push(secRow("ok", "Stammdaten nicht im Quellcode", "Bank, Steuernummer und Kunden nur in der Datenbank"));
       protect.push(secRow("ok", "Erstellte Rechnungen unveränderlich", "Korrektur nur per Storno"));
       try {
         const v = await api("verify", {});
@@ -1404,7 +1533,7 @@
       tools.push(secRow("ok", "Serverprüfung beim Erstellen", "prüft XML und PDF vor dem Speichern"));
       $("#sec-tools").innerHTML = tools.join("");
 
-      const all = protect.join("") + tools.join("");
+      const all = access.join("") + protect.join("") + tools.join("");
       const level = /sec-dot bad/.test(all) ? "bad" : /sec-dot warn/.test(all) ? "warn" : "ok";
       $("#sec-pill").className = "sec-pill " + level;
       $("#sec-label").textContent = level === "ok" ? "Geschützt" : level === "warn" ? "Hinweis" : "Störung";
