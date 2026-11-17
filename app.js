@@ -204,9 +204,9 @@
     } else window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  const safeName = (s) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, 40);
+  const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
-  const fileBase = (number, customer, project) => ["Rechnung", number, customer, project].map(safeName).filter(Boolean).join("_");
+  const fileBase = (number, customer, project) => ["Rechnung", number, customer, project].map((x, i) => safeName(x, i === 3 ? 80 : 40)).filter(Boolean).join("_");
 
   /* --------------------------------------------------------- PDF-Assets --- */
 
@@ -1324,6 +1324,10 @@
         dlg.classList.remove("open");
         resolve(actions[Number(b.dataset.i)].value);
       };
+      const close = () => { dlg.classList.remove("open"); document.removeEventListener("keydown", onKey); resolve(null); };
+      const onKey = (e) => { if (e.key === "Escape" && dlg.classList.contains("open")) close(); };
+      $("#result-close").onclick = close;
+      document.addEventListener("keydown", onKey);
       dlg.classList.add("open");
     });
   }
