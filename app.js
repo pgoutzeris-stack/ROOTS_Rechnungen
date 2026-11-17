@@ -1729,7 +1729,7 @@
       $("#sec-tools").innerHTML = "";
       const protect = [], tools = [];
       const access = [];
-      access.push(secRow("ok", "Row Level Security · 3 berechtigte Personen", ""));
+      access.push(secRow("ok", "Row Level Security", ""));
       const sandboxed = window.origin === "null";
       access.push(secRow(sandboxed ? "ok" : "warn", "Sandbox-Isolation", sandboxed ? "" : "inaktiv"));
       access.push(secRow("ok", "Auth-Broker mit Aktions-Whitelist", ""));
