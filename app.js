@@ -694,7 +694,13 @@
               ${input("issue_date", "Rechnungsdatum", { type: "date" })}
               ${input("period_start", "Leistung von", { type: "date" })}
               ${input("period_end", "Leistung bis", { type: "date" })}
-              ${input("due_date", inv.due_days ? `Fällig am · ${esc(inv.due_days)} Tage` : "Fällig am", { type: "date" })}
+              ${input("due_date", inv.due_days ? `Fällig am · ${esc(inv.due_days)} Tage` : "Fällig am", { type: "date" }).replace("</span>", ` <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip">
+                <b>Fälligkeit = Rechnungsdatum + Zahlungsziel</b>
+                <span>Das Zahlungsziel kommt vom Kunden, sonst aus der Vorlage, sonst 30 Tage.</span>
+                <span>Ändert sich das Rechnungsdatum, verschiebt sich die Fälligkeit mit. Ein selbst eingetragenes Datum bleibt stehen.</span>
+                <span>Pflichtangabe der E-Rechnung (EN 16931), darf nicht leer sein.</span>
+                <span class="info-links"><button type="button" class="nav-tab" data-view="customers">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings">Vorlagen</button></span>
+              </span></span></span>`)}
               ${input("project", "Projekt", { wide: true })}
               ${input("po", "Bestellnummer")}
               ${input("cost_center", "Kostenstelle")}
