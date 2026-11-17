@@ -1237,8 +1237,8 @@
       icon: "fa-paper-plane",
       title: `Rechnung ${d.number} senden`,
       html: `<div class="mail-form">
-        <label class="field"><span class="flabel">Von${fromSaved ? "" : " · neu"}</span><input id="mail-from" type="email" value="${esc(fromSaved)}" placeholder="${esc(state.user?.email || "")}"></label>
-        <label class="field"><span class="flabel">An${toSaved ? "" : " · neu"}</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
+        <label class="field"><span class="flabel">Von</span><input id="mail-from" type="email" value="${esc(fromSaved || state.user?.email || "")}" placeholder="${esc(state.user?.email || "")}"></label>
+        <label class="field"><span class="flabel">An</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
         <label class="field"><span class="flabel">Betreff</span><input id="mail-subject" value="${esc(draft.subject)}"></label>
         <label class="field"><span class="flabel">Text</span><textarea id="mail-body" rows="9">${esc(draft.body)}</textarea></label>
         <p class="cell-sub"><i class="fa-solid fa-paperclip"></i> <span class="mono">${esc(fileName)}</span></p>
