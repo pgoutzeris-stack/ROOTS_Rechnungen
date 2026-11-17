@@ -495,7 +495,7 @@
     }
     body.innerHTML = rows.map((i) => `
       <tr data-id="${esc(i.id)}" class="row-${esc(i.status)}">
-        <td class="mono">${i.number ? esc(i.number) : '<span class="cell-sub">–</span>'}</td>
+        <td class="mono">${i.number ? esc(i.number) : '<span class="cell-sub">–</span>'}${i.number && i.number_manual ? ` <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip"><span>Rechnungsnummer manuell vergeben</span></span></span>` : ""}</td>
         <td>${esc(fmtDate(i.issue_date))}</td>
         <td><div class="cell-main clip" title="${esc(i.customer_name || "")}">${esc(i.customer_name || "")}</div><div class="cell-sub clip" title="${esc(i.project || "")}">${esc(i.project || "") || "&nbsp;"}</div></td>
         <td><div class="clip" title="${esc(E.TAX_CASES[i.tax_case]?.label || "")}">${esc(E.TAX_CASES[i.tax_case]?.label || "")}</div></td>
@@ -1896,6 +1896,37 @@
     if (num === auto) delete state.edit.number_manual;
     else state.edit.number_manual = num;
     renderEditor(); commitHistory(); scheduleAutosave();
+    if (state.edit.number_manual) suggestSequenceFix(state.edit.template);
+  }
+
+  /** Wird bei einer Vorlage immer wieder von Hand nummeriert, einmal anbieten, den Kreis anzupassen. */
+  const seqHintAsked = new Set();
+  async function suggestSequenceFix(tplId) {
+    if (!tplId || seqHintAsked.has(tplId)) return;
+    const off = state.settings?.seller?.seq_hint_off || {};
+    if (off[tplId]) return;
+    const earlier = state.invoices.filter((i) => i.number && i.number_manual && i.template === tplId).length;
+    if (earlier < 1) return;
+    seqHintAsked.add(tplId);
+    const tpl = state.templates.find((t) => t.id === tplId);
+    const act = await showDialog({
+      icon: "fa-hashtag",
+      title: "Nummernkreis anpassen?",
+      html: `<p>Bei der Vorlage „${esc(tpl?.name || "")}“ wurde die Nummer schon ${earlier + 1}-mal von Hand geändert.</p>`,
+      actions: [{ label: "Nicht mehr fragen", value: "off" }, { label: "Später", value: null }, { label: "Zu den Nummernkreisen", value: "go", primary: true }],
+    });
+    if (act === "go") {
+      if (!(await leaveEditor())) return;
+      state.view = "settings"; render();
+      document.getElementById("seq-settings")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (act === "off") {
+      try {
+        const seller = { ...(state.settings?.seller || {}) };
+        seller.seq_hint_off = { ...(seller.seq_hint_off || {}), [tplId]: true };
+        state.settings = (await api("settings_save", { settings: { seller } })).settings;
+      } catch (e) { toast(e.message, "err"); }
+    }
   }
 
   function confirmDialog(title, text, okLabel, withReason) {
