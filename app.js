@@ -502,6 +502,13 @@
 
   /* -------------------------------------------------------------- Editor --- */
 
+  /** Zahlungsziel: Kunde vor Vorlage vor 30 Tagen. */
+  function dueDaysOf(customer, tplData) {
+    const c = Number(customer?.data?.due_days);
+    if (c > 0) return c;
+    return Number(tplData?.due_days) || 30;
+  }
+
   function blankInvoice(tplId, customer) {
     const row = state.templates.find((t) => t.id === tplId) || state.templates[0] || { data: {} };
     const tpl = { lang: "de", tax_case: "S19", due_days: 30, lines: [{ label: "", detail: "" }], annex: { title: "", text: "", rows: [] }, note: "", ...row.data };
@@ -515,7 +522,8 @@
       lang: tpl.lang,
       tax_case: tpl.tax_case,
       issue_date: issue,
-      due_date: addDays(issue, Number(tpl.due_days) || 30),
+      due_days: dueDaysOf(customer, tpl),
+      due_date: addDays(issue, dueDaysOf(customer, tpl)),
       period_start: ps,
       period_end: pe,
       project: "",
@@ -676,8 +684,8 @@
           <section class="card">
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
-              <div class="field"><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"}</span>
-                <div class="num-field"><input value="${esc(shownNumber(inv))}" class="mono" disabled>
+              <div class="field" ${inv.number ? "" : 'style="grid-column:span 2"'}><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"}</span>
+                <div class="num-field"><input value="${esc(shownNumber(inv))}" title="${esc(shownNumber(inv))}" class="mono" disabled>
                   ${inv.number ? "" : `<button type="button" class="icon-btn" data-act="number-edit" title="Nummer ändern"><i class="fa-solid fa-pen"></i></button>`}
                   ${!inv.number && inv.number_manual ? `<button type="button" class="icon-btn" data-act="number-auto" title="Wieder aus dem Nummernkreis"><i class="fa-solid fa-rotate-left"></i></button>` : ""}
                 </div></div>
@@ -686,7 +694,7 @@
               ${input("issue_date", "Rechnungsdatum", { type: "date" })}
               ${input("period_start", "Leistung von", { type: "date" })}
               ${input("period_end", "Leistung bis", { type: "date" })}
-              ${input("due_date", "Fällig am", { type: "date" })}
+              ${input("due_date", inv.due_days ? `Fällig am · ${esc(inv.due_days)} Tage` : "Fällig am", { type: "date" })}
               ${input("project", "Projekt", { wide: true })}
               ${input("po", "Bestellnummer")}
               ${input("cost_center", "Kostenstelle")}
@@ -1449,6 +1457,7 @@
         <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
+        ${f("due_days", "Zahlungsziel (Tage)", d.due_days, `inputmode="numeric" placeholder="aus Vorlage: ${esc(customerTemplate(c)?.data?.due_days ?? 30)}"`)}
       </div>`;
     $("#cust-form").insertAdjacentHTML("afterbegin", `
       <div class="buyer-head">
@@ -1480,6 +1489,7 @@
     data.hide_country = fd.hide_country === "1";
     data.vat_print = String(data.vat_print || "").trim();
     data.display_name = String(data.display_name || "").trim();
+    data.due_days = Number(String(data.due_days || "").replace(/\D/g, "")) || "";
     const tpl = state.templates.find((t) => t.id === data.template_id);
     data.tax_case = tpl?.data?.tax_case || "";
     data.lang = tpl?.data?.lang || "de";
@@ -1834,7 +1844,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, due_days: existing?.data?.due_days || "" } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
@@ -1939,8 +1949,15 @@
       }
       const el = e.target.closest("[data-path]");
       if (!el || !state.edit) return;
+      const prevIssue = state.edit.issue_date, prevDue = state.edit.due_date;
       setPath(el.dataset.path, el.type === "checkbox" ? el.checked : el.dataset.date ? window.RootsUI.deToIso(el.value) : el.value);
       pendingFocus = regionKey(el.dataset.path);
+      if (el.dataset.path === "issue_date" && state.edit.due_days && /^\d{4}-\d{2}-\d{2}$/.test(prevIssue || "") && /^\d{4}-\d{2}-\d{2}$/.test(state.edit.issue_date || "") && prevDue === addDays(prevIssue, state.edit.due_days)) {
+        state.edit.due_date = addDays(state.edit.issue_date, state.edit.due_days);
+        const dueEl = document.querySelector('[data-path="due_date"]');
+        if (dueEl) dueEl.value = dueEl.dataset.date ? window.RootsUI.isoToDe(state.edit.due_date) : state.edit.due_date;
+      }
+      if (el.dataset.path === "due_date" && state.edit.due_days && /^\d{4}-\d{2}-\d{2}$/.test(state.edit.issue_date || "") && state.edit.due_date !== addDays(state.edit.issue_date, state.edit.due_days)) delete state.edit.due_days;
       scheduleHistory();
       scheduleAutosave();
       updateLive();
@@ -1954,6 +1971,8 @@
         if (ct) { state.edit.tax_case = ct.data.tax_case; state.edit.lang = ct.data.lang; state.edit.template = ct.id; }
         if (d.contact) state.edit.ordered_by = d.contact;
         state.edit.customer_id = c.id;
+        state.edit.due_days = dueDaysOf(c, ct?.data);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(state.edit.issue_date || "")) state.edit.due_date = addDays(state.edit.issue_date, state.edit.due_days);
         state.edit.buyer_logo = d.logo || "";
         return renderEditor();
       }
