@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=45"></script>
-<script src="richtext.js?v=45"></script>
-<script src="einvoice.js?v=45"></script>
-<script src="layout.js?v=45"></script>
-<script src="designer.js?v=45"></script>
-<script src="pdf.js?v=45"></script>
-<script src="schematron.js?v=45"></script>
-<script src="facturx.js?v=45"></script>
-<script src="annex.js?v=45"></script>
-<script src="app.js?v=45"></script>
+<script src="ui.js?v=46"></script>
+<script src="richtext.js?v=46"></script>
+<script src="einvoice.js?v=46"></script>
+<script src="layout.js?v=46"></script>
+<script src="designer.js?v=46"></script>
+<script src="pdf.js?v=46"></script>
+<script src="schematron.js?v=46"></script>
+<script src="facturx.js?v=46"></script>
+<script src="annex.js?v=46"></script>
+<script src="app.js?v=46"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -74,15 +74,15 @@ button:disabled{cursor:not-allowed}
 .sec-pill i{color:var(--brand)}
 .sec-pill.warn i{color:#d97706}
 .sec-pill.bad i{color:#dc2626}
-.sec-pop{display:none;position:absolute;right:0;top:100%;margin-top:8px;width:340px;max-height:72vh;overflow:auto;z-index:300;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.14);font-size:.8125rem;line-height:1.4}
+.sec-pop{display:none;position:absolute;right:0;top:100%;margin-top:8px;width:300px;max-height:72vh;overflow:auto;z-index:300;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.14);font-size:.8125rem;line-height:1.4}
 .sec-pop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px}
 .sec-wrap:hover .sec-pop,.sec-wrap:focus-within .sec-pop{display:block}
 .sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .sec-group{font-size:.7rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
-.sec-row{display:grid;grid-template-columns:10px 1fr;gap:2px 10px;align-items:baseline;padding:5px 0}
+.sec-row{display:grid;grid-template-columns:10px 1fr;gap:10px;align-items:baseline;padding:4px 0}
 .sec-dot{width:8px;height:8px;border-radius:50%;background:var(--line);transform:translateY(-1px)}
 .sec-dot.ok{background:#16a34a}.sec-dot.warn{background:#d97706}.sec-dot.bad{background:#dc2626}.sec-dot.run{background:var(--brand);opacity:.5}
-.sec-val{grid-column:2;color:var(--muted);font-size:.75rem}
+.sec-val{color:var(--muted)}
 .sec-foot{margin-top:10px;font-size:.72rem;color:var(--muted)}
 .logo-mark{width:28px;height:28px;border-radius:7px;background:var(--brand);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .wordmark{font-size:14px;font-weight:700;color:var(--ink);white-space:nowrap}
@@ -579,8 +579,10 @@ input:disabled{background:var(--surface);color:var(--muted)}
 }
 
 /* Übersicht */
-.ov-head{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 20px}
+.ov-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 20px}
 .ov-head h2{margin:0}
+.ov-filters{display:flex;gap:8px;flex-wrap:wrap}
+.ov-filters select,.ov-filters input{height:36px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem;width:auto}
 .ov-stamp{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:8px}
 .ov-live{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.5);animation:ovPulse 2s infinite}
 @keyframes ovPulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.45)}70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}

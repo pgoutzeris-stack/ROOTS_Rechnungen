@@ -1341,42 +1341,65 @@
   const MONTHS_SHORT = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
   let ovTimer = null, ovStamp = null;
 
-  function overviewData() {
+  const ovFilter = { range: "year", from: "", to: "", customer: "" };
+  const OV_RANGES = [["month", "Dieser Monat"], ["quarter", "Dieses Quartal"], ["year", "Dieses Jahr"], ["last12", "Letzte 12 Monate"], ["prevyear", "Vorjahr"], ["all", "Gesamter Zeitraum"], ["custom", "Eigener Zeitraum"]];
+
+  /** [von, bis] als ISO-Datum, dazu der gleich lange Vergleichszeitraum davor. */
+  function ovPeriod() {
     const now = new Date(), y = now.getFullYear(), m = now.getMonth();
-    const ym = (d) => String(d || "").slice(0, 7);
-    const key = (yy, mm) => `${yy}-${String(mm + 1).padStart(2, "0")}`;
-    const fin = state.invoices.filter((i) => i.status === "final");
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const first = state.invoices.map((i) => i.issue_date).filter(Boolean).sort()[0] || iso(new Date(y, 0, 1));
+    let from, to, label;
+    switch (ovFilter.range) {
+      case "month": from = new Date(y, m, 1); to = new Date(y, m + 1, 0); label = now.toLocaleDateString("de-DE", { month: "long", year: "numeric" }); break;
+      case "quarter": { const q = Math.floor(m / 3); from = new Date(y, q * 3, 1); to = new Date(y, q * 3 + 3, 0); label = `Q${q + 1} ${y}`; break; }
+      case "last12": from = new Date(y, m - 11, 1); to = new Date(y, m + 1, 0); label = "letzte 12 Monate"; break;
+      case "prevyear": from = new Date(y - 1, 0, 1); to = new Date(y - 1, 11, 31); label = String(y - 1); break;
+      case "all": from = new Date(first + "T12:00:00"); to = new Date(y, m + 1, 0); label = "gesamt"; break;
+      case "custom": from = new Date((ovFilter.from || first) + "T12:00:00"); to = new Date((ovFilter.to || iso(now)) + "T12:00:00"); label = `${fmtDate(iso(from))} bis ${fmtDate(iso(to))}`; break;
+      default: from = new Date(y, 0, 1); to = new Date(y, 11, 31); label = String(y);
+    }
+    const days = Math.round((to - from) / 864e5) + 1;
+    const pTo = new Date(from); pTo.setDate(pTo.getDate() - 1);
+    const pFrom = new Date(pTo); pFrom.setDate(pFrom.getDate() - days + 1);
+    return { from: iso(from), to: iso(to), pFrom: iso(pFrom), pTo: iso(pTo), label, compare: ovFilter.range !== "all" };
+  }
+
+  function overviewData() {
+    const P = ovPeriod();
+    const byC = (i) => !ovFilter.customer || i.customer_name === ovFilter.customer;
+    const inP = (i, a, b) => i.issue_date && i.issue_date >= a && i.issue_date <= b;
     const sum = (list, f = "net_cents") => list.reduce((a, i) => a + (Number(i[f]) || 0), 0);
-    const inYear = (i, yy) => String(i.issue_date || "").startsWith(String(yy));
-    const thisMonth = key(y, m), prevMonth = key(m ? y : y - 1, m ? m - 1 : 11);
-    const q = Math.floor(m / 3);
-    const inQuarter = (i) => { const d = String(i.issue_date || ""); return d.startsWith(String(y)) && Math.floor((Number(d.slice(5, 7)) - 1) / 3) === q; };
+    const fin = state.invoices.filter((i) => i.status === "final" && byC(i));
+    const finP = fin.filter((i) => inP(i, P.from, P.to));
+    const finPrev = fin.filter((i) => inP(i, P.pFrom, P.pTo));
     const today0 = today(), in30 = addDays(today0, 30);
     const due30 = fin.filter((i) => i.due_date && i.due_date >= today0 && i.due_date <= in30);
-    const drafts = state.invoices.filter((i) => i.status === "draft");
-    const finYear = fin.filter((i) => inYear(i, y));
+    const drafts = state.invoices.filter((i) => i.status === "draft" && byC(i));
+    // Monatsachse ueber den Zeitraum, hoechstens 24 Monate
     const months = [];
-    for (let k = 11; k >= 0; k--) {
-      const d = new Date(y, m - k, 1);
-      const kk = key(d.getFullYear(), d.getMonth());
-      months.push({ key: kk, label: MONTHS_SHORT[d.getMonth()], year: d.getFullYear(), net: sum(fin.filter((i) => ym(i.issue_date) === kk)), n: fin.filter((i) => ym(i.issue_date) === kk).length });
+    const s0 = new Date(P.from.slice(0, 7) + "-01T12:00:00"), e0 = new Date(P.to.slice(0, 7) + "-01T12:00:00");
+    const span = (e0.getFullYear() - s0.getFullYear()) * 12 + e0.getMonth() - s0.getMonth() + 1;
+    const startOff = Math.max(0, span - 24);
+    for (let k = startOff; k < span; k++) {
+      const d = new Date(s0.getFullYear(), s0.getMonth() + k, 1);
+      const kk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const list = finP.filter((i) => String(i.issue_date).slice(0, 7) === kk);
+      months.push({ key: kk, label: MONTHS_SHORT[d.getMonth()], year: d.getFullYear(), net: sum(list), n: list.length });
     }
-    const byCust = {};
-    finYear.forEach((i) => { byCust[i.customer_name || "–"] = (byCust[i.customer_name || "–"] || 0) + (Number(i.net_cents) || 0); });
-    const byTax = {};
-    finYear.forEach((i) => { const l = E.TAX_CASES[i.tax_case]?.label || i.tax_case || "–"; byTax[l] = (byTax[l] || 0) + (Number(i.net_cents) || 0); });
-    const recent = [...state.invoices].sort((a, b) => String(b.finalized_at || b.updated_at || b.created_at).localeCompare(String(a.finalized_at || a.updated_at || a.created_at))).slice(0, 6);
+    const byCust = {}, byTax = {};
+    finP.forEach((i) => { byCust[i.customer_name || "–"] = (byCust[i.customer_name || "–"] || 0) + (Number(i.net_cents) || 0); });
+    finP.forEach((i) => { const l = E.TAX_CASES[i.tax_case]?.label || i.tax_case || "–"; byTax[l] = (byTax[l] || 0) + (Number(i.net_cents) || 0); });
+    const recent = state.invoices.filter(byC).sort((a, b) => String(b.finalized_at || b.updated_at || b.created_at).localeCompare(String(a.finalized_at || a.updated_at || a.created_at))).slice(0, 6);
     return {
-      y, q,
-      netYear: sum(finYear), netPrevYear: sum(fin.filter((i) => inYear(i, y - 1))),
-      netMonth: sum(fin.filter((i) => ym(i.issue_date) === thisMonth)), netPrevMonth: sum(fin.filter((i) => ym(i.issue_date) === prevMonth)),
-      countYear: finYear.length, cancelledYear: state.invoices.filter((i) => i.status === "cancelled" && inYear(i, y)).length,
-      avg: finYear.length ? Math.round(sum(finYear) / finYear.length) : 0,
+      P,
+      net: sum(finP), netPrev: sum(finPrev), gross: sum(finP, "gross_cents"), tax: sum(finP, "tax_cents"),
+      count: finP.length, cancelled: state.invoices.filter((i) => i.status === "cancelled" && byC(i) && inP(i, P.from, P.to)).length,
+      avg: finP.length ? Math.round(sum(finP) / finP.length) : 0,
       drafts: drafts.length, draftsGross: sum(drafts, "gross_cents"),
       due30: sum(due30, "gross_cents"), due30n: due30.length,
-      taxQuarter: sum(fin.filter(inQuarter), "tax_cents"),
       customers: Object.keys(byCust).length,
-      months, top: Object.entries(byCust).sort((a, b) => b[1] - a[1]).slice(0, 5), tax: Object.entries(byTax).sort((a, b) => b[1] - a[1]), recent,
+      months, top: Object.entries(byCust).sort((a, b) => b[1] - a[1]).slice(0, 5), taxes: Object.entries(byTax).sort((a, b) => b[1] - a[1]), recent,
     };
   }
 
@@ -1396,39 +1419,46 @@
     const box = $("#overview");
     if (!box) return;
     const d = overviewData();
-    const mName = new Date().toLocaleDateString("de-DE", { month: "long" });
     const tile = (i, cls, icon, k, val, sub, isInt) => `<div class="ov-tile ${cls}" style="animation-delay:${i * 70}ms"><i class="fa-solid ${icon} ov-ic"></i><div class="ov-k">${esc(k)}</div><div class="ov-v" data-count="${val}" ${isInt ? 'data-int="1"' : ""}>${isInt ? "0" : money(0)}</div><div class="ov-sub">${sub}</div></div>`;
     const maxM = Math.max(...d.months.map((x) => x.net), 1);
     const maxC = Math.max(...d.top.map((x) => x[1]), 1);
-    const totTax = d.tax.reduce((a, x) => a + x[1], 0) || 1;
+    const totTax = d.taxes.reduce((a, x) => a + x[1], 0) || 1;
     const statusTxt = { draft: "Entwurf", final: "Erstellt", cancelled: "Storniert" };
+    const names = [...new Set(state.invoices.map((i) => i.customer_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, "de"));
+    const delta = d.P.compare && d.netPrev ? Math.round(((d.net - d.netPrev) / d.netPrev) * 100) : null;
     box.innerHTML = `
-      <div class="ov-head"><h2>Übersicht</h2><span class="ov-stamp"><span class="ov-live"></span>Live · Stand ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <div class="ov-head"><h2>Übersicht</h2>
+        <div class="ov-filters">
+          <select id="ov-range">${OV_RANGES.map(([k, l]) => `<option value="${k}" ${ovFilter.range === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+          ${ovFilter.range === "custom" ? `<input id="ov-from" type="date" value="${esc(d.P.from)}"><input id="ov-to" type="date" value="${esc(d.P.to)}">` : ""}
+          <select id="ov-cust"><option value="">Alle Kunden</option>${names.map((n) => `<option ${ovFilter.customer === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+        </div>
+      </div>
       <div class="ov-tiles">
-        ${tile(0, "hero", "fa-chart-line", `Umsatz ${d.y} netto`, d.netYear, d.netPrevYear ? `Vorjahr ${esc(money(d.netPrevYear))}` : `${d.countYear} Rechnungen`)}
-        ${tile(1, "", "fa-calendar", `Umsatz ${mName} netto`, d.netMonth, `Vormonat ${esc(money(d.netPrevMonth))}`)}
+        ${tile(0, "hero", "fa-chart-line", `Umsatz netto · ${d.P.label}`, d.net, delta === null ? `${d.count} ${d.count === 1 ? "Rechnung" : "Rechnungen"}` : `${delta >= 0 ? "+" : ""}${delta} % zum Vorzeitraum`)}
+        ${tile(1, "", "fa-coins", "Umsatz brutto", d.gross, d.P.compare ? `Vorzeitraum netto ${esc(money(d.netPrev))}` : esc(d.P.label))}
         ${tile(2, "", "fa-clock", "Fällig in 30 Tagen", d.due30, `${d.due30n} ${d.due30n === 1 ? "Rechnung" : "Rechnungen"} · brutto`)}
-        ${tile(3, "", "fa-landmark", `Umsatzsteuer Q${d.q + 1}`, d.taxQuarter, "aus erstellten Rechnungen")}
-        ${tile(4, "", "fa-file-invoice", `Rechnungen ${d.y}`, d.countYear, d.cancelledYear ? `${d.cancelledYear} storniert` : "keine storniert", true)}
-        ${tile(5, "", "fa-scale-balanced", "Ø Rechnung netto", d.avg, `${d.y}`)}
+        ${tile(3, "", "fa-landmark", "Umsatzsteuer", d.tax, esc(d.P.label))}
+        ${tile(4, "", "fa-file-invoice", "Rechnungen", d.count, d.cancelled ? `${d.cancelled} storniert` : "keine storniert", true)}
+        ${tile(5, "", "fa-scale-balanced", "Ø Rechnung netto", d.avg, esc(d.P.label))}
         ${tile(6, "", "fa-file-pen", "Offene Entwürfe", d.drafts, `${esc(money(d.draftsGross))} brutto`, true)}
-        ${tile(7, "", "fa-users", `Kunden ${d.y}`, d.customers, "mit erstellter Rechnung", true)}
+        ${tile(7, "", "fa-users", "Kunden", d.customers, "mit erstellter Rechnung", true)}
       </div>
       <div class="ov-grid">
         <div class="ov-card" style="animation-delay:560ms">
           <h3>Umsatz netto je Monat</h3>
-          <div class="ov-bars">${d.months.map((x) => `<div class="ov-bar ${x.net ? "" : "zero"}"><i data-h="${x.net ? Math.max(3, (x.net / maxM) * 100) : 0}"></i><span class="ov-tip">${esc(x.label)} ${x.year} · ${esc(money(x.net))} · ${x.n} ${x.n === 1 ? "Rechnung" : "Rechnungen"}</span></div>`).join("")}</div>
-          <div class="ov-months">${d.months.map((x) => `<span>${esc(x.label)}</span>`).join("")}</div>
+          <div class="ov-bars" style="grid-template-columns:repeat(${d.months.length},1fr)">${d.months.map((x) => `<div class="ov-bar ${x.net ? "" : "zero"}"><i data-h="${x.net ? Math.max(3, (x.net / maxM) * 100) : 0}"></i><span class="ov-tip">${esc(x.label)} ${x.year} · ${esc(money(x.net))} · ${x.n} ${x.n === 1 ? "Rechnung" : "Rechnungen"}</span></div>`).join("")}</div>
+          <div class="ov-months" style="grid-template-columns:repeat(${d.months.length},1fr)">${d.months.map((x) => `<span>${esc(x.label)}${d.months.length > 12 && x.label === "Jan" ? ` ${String(x.year).slice(2)}` : ""}</span>`).join("")}</div>
         </div>
         <div class="ov-card" style="animation-delay:630ms">
-          <h3>Top-Kunden ${d.y}</h3>
-          <div class="ov-list">${d.top.length ? d.top.map(([n, v]) => `<div class="ov-li"><span class="ov-name" title="${esc(n)}">${esc(n)}</span><b>${esc(money(v))}</b><span class="ov-track"><i data-w="${(v / maxC) * 100}"></i></span></div>`).join("") : `<span class="ov-empty">Noch keine erstellte Rechnung in ${d.y}</span>`}</div>
+          <h3>Top-Kunden</h3>
+          <div class="ov-list">${d.top.length ? d.top.map(([n, v]) => `<div class="ov-li"><span class="ov-name" title="${esc(n)}">${esc(n)}</span><b>${esc(money(v))}</b><span class="ov-track"><i data-w="${(v / maxC) * 100}"></i></span></div>`).join("") : `<span class="ov-empty">Keine erstellte Rechnung im Zeitraum</span>`}</div>
         </div>
       </div>
       <div class="ov-grid2">
         <div class="ov-card" style="animation-delay:700ms">
-          <h3>Steuerfälle ${d.y}</h3>
-          <div class="ov-list">${d.tax.length ? d.tax.map(([n, v]) => `<div class="ov-li"><span class="ov-name" title="${esc(n)}">${esc(n)}</span><b>${Math.round((v / totTax) * 100)} %</b><span class="ov-track"><i data-w="${(v / totTax) * 100}"></i></span></div>`).join("") : `<span class="ov-empty">Keine Daten</span>`}</div>
+          <h3>Steuerfälle</h3>
+          <div class="ov-list">${d.taxes.length ? d.taxes.map(([n, v]) => `<div class="ov-li"><span class="ov-name" title="${esc(n)}">${esc(n)}</span><b>${Math.round((v / totTax) * 100)} %</b><span class="ov-track"><i data-w="${(v / totTax) * 100}"></i></span></div>`).join("") : `<span class="ov-empty">Keine Daten</span>`}</div>
         </div>
         <div class="ov-card" style="animation-delay:770ms;grid-column:span 2">
           <h3>Zuletzt bearbeitet</h3>
@@ -1441,6 +1471,13 @@
       box.querySelectorAll(".ov-track i").forEach((el, k) => { el.style.transitionDelay = `${700 + k * 60}ms`; el.style.width = el.dataset.w + "%"; });
     }));
     box.onclick = (e) => { const b = e.target.closest("[data-ov-open]"); if (b) openDetail(b.dataset.ovOpen); };
+    box.onchange = (e) => {
+      if (e.target.id === "ov-range") ovFilter.range = e.target.value;
+      if (e.target.id === "ov-cust") ovFilter.customer = e.target.value;
+      if (e.target.id === "ov-from") ovFilter.from = e.target.value;
+      if (e.target.id === "ov-to") ovFilter.to = e.target.value;
+      renderOverview();
+    };
     clearInterval(ovTimer);
     ovTimer = setInterval(async () => {
       if (state.view !== "overview" || document.hidden) return;
@@ -1448,7 +1485,7 @@
         const before = JSON.stringify(state.invoices.map((i) => [i.id, i.status, i.gross_cents, i.updated_at]));
         state.invoices = (await api("list")).invoices || [];
         if (JSON.stringify(state.invoices.map((i) => [i.id, i.status, i.gross_cents, i.updated_at])) !== before) renderOverview();
-        else { const st = box.querySelector(".ov-stamp"); if (st) st.lastChild.textContent = `Live · Stand ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`; }
+
       } catch (_) { /* naechster Versuch */ }
     }, 60000);
   }
@@ -1457,8 +1494,9 @@
 
   const secState = { running: null, at: null };
   function secRow(state, label, val) {
-    return `<div class="sec-row"><span class="sec-dot ${state}"></span><span>${esc(label)}</span><span class="sec-val">${esc(val)}</span></div>`;
+    return `<div class="sec-row"><span class="sec-dot ${state}"></span><span>${esc(label)}${val ? ` <span class="sec-val">· ${esc(val)}</span>` : ""}</span></div>`;
   }
+
   function secSample() {
     const seller = state.settings?.seller || {};
     const day = today();
@@ -1476,24 +1514,24 @@
       $("#sec-tools").innerHTML = "";
       const protect = [], tools = [];
       const access = [];
-      access.push(secRow("ok", "Nur drei freigeschaltete Personen", "Datenbankregeln je Zeile (RLS) und Freigabeliste im Intranet"));
+      access.push(secRow("ok", "Row Level Security · 3 berechtigte Personen", ""));
       const sandboxed = window.origin === "null";
-      access.push(secRow(sandboxed ? "ok" : "warn", "Tool läuft abgeschottet", sandboxed ? "Sandbox ohne Zugriff auf die Intranet-Anmeldung" : "nicht in der Intranet-Sandbox geöffnet"));
-      access.push(secRow("ok", "Anfragen nur über das Intranet", "feste Liste erlaubter Aktionen, kein Schlüssel im Tool"));
-      access.push(secRow("ok", "Öffentlicher Schlüssel ohne Rechte", "anonyme Anfragen sehen keine Rechnungsdaten"));
-      access.push(secRow(location.protocol === "https:" ? "ok" : "warn", "Verschlüsselte Verbindung", location.protocol === "https:" ? "HTTPS/TLS" : "ohne HTTPS geöffnet"));
+      access.push(secRow(sandboxed ? "ok" : "warn", "Sandbox-Isolation", sandboxed ? "" : "inaktiv"));
+      access.push(secRow("ok", "Auth-Broker mit Aktions-Whitelist", ""));
+      access.push(secRow("ok", "Anon-Key ohne Tabellenrechte", ""));
+      access.push(secRow(location.protocol === "https:" ? "ok" : "warn", "TLS-Transportverschlüsselung", location.protocol === "https:" ? "" : "inaktiv"));
       $("#sec-access").innerHTML = access.join("");
-      protect.push(secRow("ok", "Speicherort EU", "Supabase, Rechenzentrum Irland"));
-      protect.push(secRow("ok", "Verschlüsselt gespeichert", "AES-256 auf Datenbank und Sicherungen"));
-      protect.push(secRow("ok", "Stammdaten nicht im Quellcode", "Bank, Steuernummer und Kunden nur in der Datenbank"));
-      protect.push(secRow("ok", "Erstellte Rechnungen unveränderlich", "Korrektur nur per Storno"));
+      protect.push(secRow("ok", "Hosting EU · Irland", ""));
+      protect.push(secRow("ok", "Verschlüsselung at rest · AES-256", ""));
+      protect.push(secRow("ok", "Keine Stammdaten im Quellcode", ""));
+      protect.push(secRow("ok", "Festschreibung nach Erstellung", ""));
       try {
         const v = await api("verify", {});
-        protect.push(secRow(v.ok ? "ok" : "bad", "Verlauf mit Prüfsummen-Kette", v.ok ? `lückenlos · ${v.entries} Einträge` : `${(v.errors || []).length} Fehler`));
+        protect.push(secRow(v.ok ? "ok" : "bad", "Journal mit Hash-Kette", v.ok ? "lückenlos" : `${(v.errors || []).length} Fehler`));
       } catch (e) {
-        protect.push(secRow("bad", "Verlauf mit Prüfsummen-Kette", "nicht prüfbar"));
+        protect.push(secRow("bad", "Journal mit Hash-Kette", "nicht prüfbar"));
       }
-      protect.push(secRow("ok", "Tresor mit zweiter Kopie", "jede Änderung getrennt gesichert"));
+      protect.push(secRow("ok", "Append-only-Backup (Tresor)", ""));
       $("#sec-protect").innerHTML = protect.join("");
 
       try {
@@ -1502,18 +1540,18 @@
         // Gegenprobe: eine Rechnung ohne Kundennamen muss abgelehnt werden.
         const bad = await window.RootsSchematron.validate(xml.replace(/(<ram:BuyerTradeParty>\s*<ram:Name>)[^<]*/, "$1"));
         const st = r.passed && !bad.passed ? "ok" : r.passed ? "bad" : "warn";
-        tools.push(secRow(st, "Schematron EN 16931", st === "ok" ? "erkennt Fehler · Test bestanden" : r.passed ? "erkennt Fehler nicht" : `${r.errors.length} Regeln verletzt`));
+        tools.push(secRow(st, "Schematron EN 16931", st === "ok" ? "Selbsttest bestanden" : r.passed ? "Gegenprobe fehlgeschlagen" : `${r.errors.length} Regeln verletzt`));
       } catch (e) {
         tools.push(secRow("bad", "Schematron EN 16931", "lädt nicht"));
       }
       const pyLoaded = !!window.loadPyodide;
       try {
         const ok = pyLoaded || (await fetch("https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js", { method: "HEAD", cache: "no-store" })).ok;
-        tools.push(secRow(ok ? "ok" : "bad", "Factur-X-Prüfung (XSD, PDF/A-3)", pyLoaded ? "geladen" : ok ? "erreichbar" : "nicht erreichbar"));
+        tools.push(secRow(ok ? "ok" : "bad", "Factur-X 1.09 · XSD und PDF/A-3", pyLoaded ? "geladen" : ok ? "erreichbar" : "nicht erreichbar"));
       } catch (e) {
-        tools.push(secRow("bad", "Factur-X-Prüfung (XSD, PDF/A-3)", "nicht erreichbar"));
+        tools.push(secRow("bad", "Factur-X 1.09 · XSD und PDF/A-3", "nicht erreichbar"));
       }
-      tools.push(secRow("ok", "Serverprüfung beim Erstellen", "prüft XML und PDF vor dem Speichern"));
+      tools.push(secRow("ok", "Serverseitige Validierung", ""));
       $("#sec-tools").innerHTML = tools.join("");
 
       const all = access.join("") + protect.join("") + tools.join("");
