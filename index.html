@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=34"></script>
-<script src="richtext.js?v=34"></script>
-<script src="einvoice.js?v=34"></script>
-<script src="layout.js?v=34"></script>
-<script src="designer.js?v=34"></script>
-<script src="pdf.js?v=34"></script>
-<script src="schematron.js?v=34"></script>
-<script src="facturx.js?v=34"></script>
-<script src="annex.js?v=34"></script>
-<script src="app.js?v=34"></script>
+<script src="ui.js?v=35"></script>
+<script src="richtext.js?v=35"></script>
+<script src="einvoice.js?v=35"></script>
+<script src="layout.js?v=35"></script>
+<script src="designer.js?v=35"></script>
+<script src="pdf.js?v=35"></script>
+<script src="schematron.js?v=35"></script>
+<script src="facturx.js?v=35"></script>
+<script src="annex.js?v=35"></script>
+<script src="app.js?v=35"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -550,6 +550,9 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .sort.on.asc::after{content:"\f0d8"}
 .sort-sep{margin:0 6px;opacity:.5}
 #invoice-rows td.mono,#invoice-rows td.num,#invoice-rows td:nth-child(2){white-space:nowrap}
+#invoice-rows td{white-space:nowrap;height:64px;padding-top:0;padding-bottom:0}
+#invoice-rows .clip{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#invoice-rows td:nth-child(4) .clip{max-width:200px}
 @media (max-width:1100px){.editor-grid,.editor-split{grid-template-columns:1fr}.sticky,.preview-pane{position:static}.preview-pane{height:70vh}}
 @media (max-width:760px){
   .dash-sidebar{display:none}
