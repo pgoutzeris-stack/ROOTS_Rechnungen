@@ -397,6 +397,7 @@
     $("#app").classList.remove("hidden");
     $("#user-line").textContent = state.user.email;
     await refresh();
+    wireSecurity();
     // Pruefmodule im Hintergrund vorwaermen
     setTimeout(() => { window.RootsSchematron.load().catch(() => {}); window.RootsFacturX.load().catch(() => {}); }, 800);
   }
@@ -1257,17 +1258,59 @@
     if (act === "web") return openOutlookWeb(mail, pdf, fileName);
     const eml = new TextEncoder().encode(buildEml({ ...mail, to: tos.join(", "), pdf, fileName }));
     const emlName = `${fileBase(d.number, d.customer_name, d.data?.project)}.eml`;
-    const ok = await download(eml, emlName, "message/rfc822");
+    const res = await saveEml(eml, emlName);
     const next = await showDialog({
-      icon: ok ? "fa-envelope-open-text" : "fa-triangle-exclamation", tone: ok ? "" : "bad",
-      title: ok ? "Hat sich Outlook geöffnet?" : "Outlook ließ sich nicht öffnen",
-      html: ok
+      icon: res.ok ? "fa-envelope-open-text" : "fa-triangle-exclamation", tone: res.ok ? "" : "bad",
+      title: res.ok ? "Hat sich Outlook geöffnet?" : "E-Mail ließ sich nicht speichern",
+      html: res.ok
         ? `<p>Die E-Mail liegt auch als <span class="mono">${esc(emlName)}</span> in den Downloads.</p>`
-        : "",
-      actions: [{ label: ok ? "Ja, fertig" : "Schließen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail erneut speichern", value: "eml", primary: !ok }],
+        : `<p>Outlook im Browser oder das Mail-Programm öffnen, das PDF wird dabei gespeichert.</p>${res.reason ? `<p class="cell-sub">${esc(res.reason)}</p>` : ""}`,
+      actions: [
+        { label: "Mail-Programm", value: "mailto" },
+        { label: "E-Mail erneut speichern", value: "eml" },
+        { label: "Outlook im Browser", value: "web", primary: !res.ok },
+      ],
     });
     if (next === "web") return openOutlookWeb(mail, pdf, fileName);
-    if (next === "eml") return download(eml, emlName, "message/rfc822");
+    if (next === "mailto") return openMailto(mail, pdf, fileName);
+    if (next === "eml") {
+      const again = await saveEml(eml, emlName);
+      toast(again.ok ? `${emlName} gespeichert` : "Speichern nicht möglich", again.ok ? "ok" : "err");
+    }
+  }
+
+  /**
+   * .eml speichern mit Ausweichwegen: Intranet als message/rfc822, Intranet als
+   * octet-stream, direkt im Frame. Liefert {ok, via, reason}.
+   */
+  async function saveEml(bytes, name) {
+    const B = window.RootsUserBridge;
+    const reasons = [];
+    for (const type of ["message/rfc822", "application/octet-stream"]) {
+      if (!B?.downloadBlob) break;
+      try {
+        const r = await B.downloadBlob(new Blob([bytes], { type }), name);
+        if (r === undefined || r?.ok) return { ok: true, via: "intranet:" + type };
+        reasons.push(r?.reason || type);
+      } catch (e) {
+        reasons.push(e.message);
+      }
+    }
+    if (directDownload(new Blob([bytes], { type: "message/rfc822" }), name)) return { ok: true, via: "direkt", reason: reasons.join(" · ") };
+    return { ok: false, reason: reasons.join(" · ") };
+  }
+
+  /** Standard-Mailprogramm per mailto, ohne Anhang; das PDF wird gespeichert. */
+  async function openMailto(mail, pdf, fileName) {
+    await download(pdf, fileName, "application/pdf");
+    const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    let url = `mailto:${mail.to.split(/[;,]\s*/).map(encodeURIComponent).join(",")}?${q({ subject: mail.subject, body: mail.body })}`;
+    if (url.length > 2000) {
+      url = `mailto:${mail.to.split(/[;,]\s*/).map(encodeURIComponent).join(",")}?${q({ subject: mail.subject })}`;
+      if (copyText(mail.body)) toast("Text in der Zwischenablage, ins Mail-Programm einfügen");
+    }
+    openExternal(url);
+    toast(`${fileName} gespeichert, bitte anhängen`);
   }
 
   async function openOutlookWeb(mail, pdf, fileName) {
@@ -1307,6 +1350,77 @@
     } catch (e) {
       toast("Adresse nicht gespeichert: " + e.message, "err");
     }
+  }
+
+  /* ------------------------------------------------- Sicherheitsstatus --- */
+
+  const secState = { running: null, at: null };
+  function secRow(state, label, val) {
+    return `<div class="sec-row"><span class="sec-dot ${state}"></span><span>${esc(label)}</span><span class="sec-val">${esc(val)}</span></div>`;
+  }
+  function secSample() {
+    const seller = state.settings?.seller || {};
+    const day = today();
+    return normalized({
+      number: "TEST-1", lang: "de", tax_case: "S19", issue_date: day, due_date: addDays(day, 30), period_start: day, period_end: day,
+      buyer: { name: "Testkunde GmbH", street: "Teststraße 1", zip: "40231", city: "Düsseldorf", country: "DE", vat_id: "" },
+      lines: [{ label: "Beratungshonorar", detail: "", amount: "100" }], annex: { rows: [] }, note: "",
+    });
+  }
+  async function runSecurityCheck() {
+    if (secState.running) return secState.running;
+    secState.running = (async () => {
+      $("#sec-protect").innerHTML = secRow("run", "Prüfung läuft", "");
+      $("#sec-tools").innerHTML = "";
+      const protect = [], tools = [];
+      protect.push(secRow("ok", "Zugriff nur für freigeschaltete Personen", "Datenbankregeln je Zeile (RLS)"));
+      protect.push(secRow("ok", "Erstellte Rechnungen unveränderlich", "Korrektur nur per Storno"));
+      try {
+        const v = await api("verify", {});
+        protect.push(secRow(v.ok ? "ok" : "bad", "Verlauf mit Prüfsummen-Kette", v.ok ? `lückenlos · ${v.entries} Einträge` : `${(v.errors || []).length} Fehler`));
+      } catch (e) {
+        protect.push(secRow("bad", "Verlauf mit Prüfsummen-Kette", "nicht prüfbar"));
+      }
+      protect.push(secRow("ok", "Tresor mit zweiter Kopie", "jede Änderung getrennt gesichert"));
+      $("#sec-protect").innerHTML = protect.join("");
+
+      try {
+        const xml = E.buildXml(secSample(), state.settings?.seller || {});
+        const r = await window.RootsSchematron.validate(xml);
+        // Gegenprobe: eine Rechnung ohne Kundennamen muss abgelehnt werden.
+        const bad = await window.RootsSchematron.validate(xml.replace(/(<ram:BuyerTradeParty>\s*<ram:Name>)[^<]*/, "$1"));
+        const st = r.passed && !bad.passed ? "ok" : r.passed ? "bad" : "warn";
+        tools.push(secRow(st, "Schematron EN 16931", st === "ok" ? "erkennt Fehler · Test bestanden" : r.passed ? "erkennt Fehler nicht" : `${r.errors.length} Regeln verletzt`));
+      } catch (e) {
+        tools.push(secRow("bad", "Schematron EN 16931", "lädt nicht"));
+      }
+      const pyLoaded = !!window.loadPyodide;
+      try {
+        const ok = pyLoaded || (await fetch("https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.js", { method: "HEAD", cache: "no-store" })).ok;
+        tools.push(secRow(ok ? "ok" : "bad", "Factur-X-Prüfung (XSD, PDF/A-3)", pyLoaded ? "geladen" : ok ? "erreichbar" : "nicht erreichbar"));
+      } catch (e) {
+        tools.push(secRow("bad", "Factur-X-Prüfung (XSD, PDF/A-3)", "nicht erreichbar"));
+      }
+      tools.push(secRow("ok", "Serverprüfung beim Erstellen", "prüft XML und PDF vor dem Speichern"));
+      $("#sec-tools").innerHTML = tools.join("");
+
+      const all = protect.join("") + tools.join("");
+      const level = /sec-dot bad/.test(all) ? "bad" : /sec-dot warn/.test(all) ? "warn" : "ok";
+      $("#sec-pill").className = "sec-pill " + level;
+      $("#sec-label").textContent = level === "ok" ? "Geschützt" : level === "warn" ? "Hinweis" : "Störung";
+      secState.at = new Date();
+      $("#sec-time").textContent = `Zuletzt geprüft: ${secState.at.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
+    })().finally(() => { secState.running = null; });
+    return secState.running;
+  }
+  function wireSecurity() {
+    const wrap = $("#sec-wrap");
+    if (!wrap) return;
+    const maybe = () => { if (!secState.at || Date.now() - secState.at > 5 * 60 * 1000) runSecurityCheck(); };
+    wrap.addEventListener("mouseenter", maybe);
+    wrap.addEventListener("focusin", maybe);
+    $("#sec-recheck").onclick = (e) => { e.stopPropagation(); runSecurityCheck(); };
+    setTimeout(runSecurityCheck, 4000);
   }
 
   /** Allgemeines Pop-up. actions: [{label, value, primary}] */

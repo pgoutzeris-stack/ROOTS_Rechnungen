@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=42"></script>
-<script src="richtext.js?v=42"></script>
-<script src="einvoice.js?v=42"></script>
-<script src="layout.js?v=42"></script>
-<script src="designer.js?v=42"></script>
-<script src="pdf.js?v=42"></script>
-<script src="schematron.js?v=42"></script>
-<script src="facturx.js?v=42"></script>
-<script src="annex.js?v=42"></script>
-<script src="app.js?v=42"></script>
+<script src="ui.js?v=43"></script>
+<script src="richtext.js?v=43"></script>
+<script src="einvoice.js?v=43"></script>
+<script src="layout.js?v=43"></script>
+<script src="designer.js?v=43"></script>
+<script src="pdf.js?v=43"></script>
+<script src="schematron.js?v=43"></script>
+<script src="facturx.js?v=43"></script>
+<script src="annex.js?v=43"></script>
+<script src="app.js?v=43"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -69,6 +69,21 @@ button:disabled{cursor:not-allowed}
 .sop-header{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1.5rem;min-height:64px;background:var(--bg);border-bottom:1px solid var(--line);gap:1.5rem;flex-shrink:0;box-shadow:0 2px 8px rgba(15,23,42,.04);position:relative;z-index:50}
 .header-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.sec-wrap{position:relative;outline:none}
+.sec-pill{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;font-weight:600;color:var(--muted);cursor:default;user-select:none}
+.sec-pill i{color:var(--brand)}
+.sec-pill.warn i{color:#d97706}
+.sec-pill.bad i{color:#dc2626}
+.sec-pop{display:none;position:absolute;right:0;top:100%;margin-top:8px;width:320px;z-index:300;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.14);font-size:.8125rem;line-height:1.4}
+.sec-pop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px}
+.sec-wrap:hover .sec-pop,.sec-wrap:focus-within .sec-pop{display:block}
+.sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.sec-group{font-size:.7rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
+.sec-row{display:grid;grid-template-columns:10px 1fr;gap:2px 10px;align-items:baseline;padding:5px 0}
+.sec-dot{width:8px;height:8px;border-radius:50%;background:var(--line);transform:translateY(-1px)}
+.sec-dot.ok{background:#16a34a}.sec-dot.warn{background:#d97706}.sec-dot.bad{background:#dc2626}.sec-dot.run{background:var(--brand);opacity:.5}
+.sec-val{grid-column:2;color:var(--muted);font-size:.75rem}
+.sec-foot{margin-top:10px;font-size:.72rem;color:var(--muted)}
 .logo-mark{width:28px;height:28px;border-radius:7px;background:var(--brand);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .wordmark{font-size:14px;font-weight:700;color:var(--ink);white-space:nowrap}
 .wordmark span{color:var(--brand)}
@@ -579,6 +594,17 @@ input:disabled{background:var(--surface);color:var(--muted)}
       <span class="header-sub">E-Rechnung · EN 16931</span>
     </div>
     <div class="header-right">
+      <div class="sec-wrap" id="sec-wrap" tabindex="0">
+        <span class="sec-pill" id="sec-pill"><i class="fa-solid fa-lock"></i> <span id="sec-label">Geschützt</span></span>
+        <div class="sec-pop" role="tooltip">
+          <div class="sec-head"><b>Sicherheit und Prüfung</b><button type="button" class="link-btn" id="sec-recheck">Neu prüfen</button></div>
+          <div class="sec-group">Schutz</div>
+          <div id="sec-protect"></div>
+          <div class="sec-group">Prüfwerkzeuge</div>
+          <div id="sec-tools"></div>
+          <div class="sec-foot" id="sec-time"></div>
+        </div>
+      </div>
       <button class="btn-header-action primary" data-act="new"><i class="fa-solid fa-plus"></i> Neue Rechnung</button>
     </div>
   </header>
