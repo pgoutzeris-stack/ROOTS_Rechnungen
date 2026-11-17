@@ -270,6 +270,13 @@
       : `<span class="pb-chip txt" draggable="true" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
   };
   /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
+  /** Rechnungsdaten (Leistungszeitraum usw.) nachladen; die Liste liefert sie nicht mit. */
+  const metaCache = new Map();
+  async function invoiceMeta(id) {
+    if (!id) return null;
+    if (!metaCache.has(id)) metaCache.set(id, api("get", { id }).then((r) => r?.invoice?.data || null).catch(() => { metaCache.delete(id); return null; }));
+    return metaCache.get(id);
+  }
   function patternBuilder(name, value, fallback = "", customer = "") {
     const chip = ([v, l, ic]) => `<span class="pb-chip pal" draggable="true" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`;
     const group = (label, html) => `<div class="pb-grp"><span class="pb-glabel">${label}</span><div class="pb-gchips">${html}</div></div>`;
@@ -298,6 +305,10 @@
     const cn = pb.dataset.customer;
     const ex = state.invoices.filter((i) => i.number && (!cn || i.customer_name === cn)).sort((a, b) => String(b.issue_date || "").localeCompare(String(a.issue_date || "")))[0];
     const pat = own || pb.dataset.fallback || FILE_PATTERN_DEFAULT;
+    if (ex && !ex.data && ex.id && !ex._metaLoading) {
+      ex._metaLoading = true;
+      invoiceMeta(ex.id).then((m) => { if (m) { ex.data = m; if (pb.isConnected) pbRender(pb); } }).catch(() => {});
+    }
     pb.querySelector(".pb-prev").textContent = (ex
       ? fileBase(ex.number, ex.customer_name, ex.project ?? ex.data?.project, pat, ex.data)
       : fileBase("237-0001", cn || "Kunde", "Projekt", pat, { period_start: "2026-01-01", period_end: "2026-03-31" })) + ".pdf";
@@ -1924,7 +1935,8 @@
       const res = await api("pdf", { id });
       const bytes = window.RootsFacturX.base64ToBytes(res.pdf);
       setBusy(false);
-      const name = await askFileName(fileBase(number, customer, project), "pdf", `Rechnung ${number} herunterladen`, customer);
+      const meta = await invoiceMeta(id);
+      const name = await askFileName(fileBase(number, customer, project, "", meta), "pdf", `Rechnung ${number} herunterladen`, customer);
       if (name) download(bytes, name, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
