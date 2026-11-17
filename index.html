@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=26"></script>
-<script src="richtext.js?v=26"></script>
-<script src="einvoice.js?v=26"></script>
-<script src="layout.js?v=26"></script>
-<script src="designer.js?v=26"></script>
-<script src="pdf.js?v=26"></script>
-<script src="schematron.js?v=26"></script>
-<script src="facturx.js?v=26"></script>
-<script src="annex.js?v=26"></script>
-<script src="app.js?v=26"></script>
+<script src="ui.js?v=27"></script>
+<script src="richtext.js?v=27"></script>
+<script src="einvoice.js?v=27"></script>
+<script src="layout.js?v=27"></script>
+<script src="designer.js?v=27"></script>
+<script src="pdf.js?v=27"></script>
+<script src="schematron.js?v=27"></script>
+<script src="facturx.js?v=27"></script>
+<script src="annex.js?v=27"></script>
+<script src="app.js?v=27"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -336,7 +336,11 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .seq-list{display:flex;flex-direction:column;gap:18px}
 .seq-item{padding:18px;border-radius:12px;background:var(--surface)}
 .seq-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.seq-meta{font-size:.86rem;color:var(--muted)}
+.seq-meta{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:4px 0 0;font-size:.875rem;align-items:baseline}
+.seq-meta dt{color:var(--muted)}
+.seq-meta dd{margin:0;color:var(--ink);display:flex;flex-wrap:wrap;gap:6px}
+.seq-meta dd b{font-size:1rem}
+.seq-chip{padding:2px 10px;border-radius:999px;background:var(--bg);font-size:.8125rem}
 .seq-item .modal-actions{margin-top:14px}
 
 /* Ergebnis-Pop-up */

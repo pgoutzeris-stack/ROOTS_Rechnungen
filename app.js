@@ -684,7 +684,13 @@
           <section class="card">
             <h3><i class="fa-solid fa-file-invoice"></i> Rechnung</h3>
             <div class="fields">
-              <div class="field" ${inv.number ? "" : 'style="grid-column:span 2"'}><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"}</span>
+              <div class="field" ${inv.number ? "" : 'style="grid-column:span 2"'}><span class="flabel">Rechnungsnummer${inv.number ? "" : inv.number_manual ? " · manuell" : " · voraussichtlich"} <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip">
+                  <b>Nummer kommt aus dem Nummernkreis der Vorlage</b>
+                  <span>${sequenceOf(inv) ? `Diese Vorlage nutzt den Kreis ${esc(sequenceOf(inv).name)} (${esc(sequenceOf(inv).prefix)}…, Schrittweite ${esc(sequenceOf(inv).step)}).` : "Dieser Vorlage ist kein Nummernkreis zugeordnet."}</span>
+                  <span>Vergeben wird die Nummer erst beim Erstellen, bis dahin ist sie voraussichtlich. Belegte Nummern werden übersprungen.</span>
+                  <span>Über den Stift lässt sich eine eigene Nummer setzen.</span>
+                  <span class="info-links"><button type="button" class="nav-tab" data-view="settings" data-scroll="seq-settings">Nummernkreise</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
+                </span></span></span>
                 <div class="num-field"><input value="${esc(shownNumber(inv))}" title="${esc(shownNumber(inv))}" class="mono" disabled>
                   ${inv.number ? "" : `<button type="button" class="icon-btn" data-act="number-edit" title="Nummer ändern"><i class="fa-solid fa-pen"></i></button>`}
                   ${!inv.number && inv.number_manual ? `<button type="button" class="icon-btn" data-act="number-auto" title="Wieder aus dem Nummernkreis"><i class="fa-solid fa-rotate-left"></i></button>` : ""}
@@ -699,7 +705,7 @@
                 <span>Das Zahlungsziel kommt vom Kunden, sonst aus der Vorlage, sonst 30 Tage.</span>
                 <span>Ändert sich das Rechnungsdatum, verschiebt sich die Fälligkeit mit. Ein selbst eingetragenes Datum bleibt stehen.</span>
                 <span>Pflichtangabe der E-Rechnung (EN 16931), darf nicht leer sein.</span>
-                <span class="info-links"><button type="button" class="nav-tab" data-view="customers">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings">Vorlagen</button></span>
+                <span class="info-links"><button type="button" class="nav-tab" data-view="customers">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
               </span></span></span>`)}
               ${input("project", "Projekt", { wide: true })}
               ${input("po", "Bestellnummer")}
@@ -1552,7 +1558,11 @@
             <label class="field"><span class="flabel">Präfix</span><input data-seq-f="prefix" value="${esc(q.prefix)}" class="mono"></label>
             <label class="field"><span class="flabel">Schrittweite</span><input data-seq-f="step" inputmode="numeric" value="${esc(q.step)}" class="mono"></label>
             <label class="field"><span class="flabel">${q.confirmed_at ? "Nächste Nummer" : "Erste Rechnungsnummer"}</span><input data-seq-f="next_number" inputmode="numeric" value="${esc(q.next_number ?? "")}" placeholder="z. B. 4411" class="mono ${q.next_number == null ? "invalid" : ""}"></label>
-            <div class="field wide seq-meta">${next ? `Nächste Rechnung: <b class="mono">${esc(next)}</b>${n2 ? `, danach <span class="mono">${esc(n2)}</span>` : ""}` : "Startnummer fehlt"}${used.length ? ` · Vorlagen: ${esc(used.join(", "))}` : ""}</div>
+            <dl class="field wide seq-meta">
+              <dt>Nächste Rechnung</dt><dd>${next ? `<b class="mono">${esc(next)}</b>` : "Startnummer fehlt"}</dd>
+              ${n2 ? `<dt>Danach</dt><dd class="mono">${n2.split(", ").map(esc).join(" · ")}</dd>` : ""}
+              <dt>Gilt für Vorlagen</dt><dd>${used.length ? used.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("") : "Keiner Vorlage zugeordnet"}</dd>
+            </dl>
           </div>
           <div class="modal-actions">
             <button class="btn-secondary" data-act="seq-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
@@ -1738,7 +1748,9 @@
       if (tab) {
         if (state.view === "edit" && !(await leaveEditor())) return;
         state.view = tab.dataset.view;
-        return render();
+        render();
+        if (tab.dataset.scroll) document.getElementById(tab.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
       }
       const pill = e.target.closest(".filter-pill");
       if (pill) {
