@@ -370,7 +370,7 @@
    * Dateiname vor dem Speichern bestaetigen. Weicht er vom Schema ab, kommt
    * einmal ein Hinweis (abschaltbar je Person) mit Link zum Schema.
    */
-  async function confirmedName(proposal, ext, changed) {
+  async function confirmedName(proposal, ext, changed, customer) {
     const name = String(changed ?? proposal).trim().replace(/\.[a-z0-9]{2,4}$/i, "");
     if (!name) return null;
     if (name === proposal) return `${name}.${ext}`;
@@ -380,7 +380,12 @@
       icon: "fa-triangle-exclamation", tone: "bad",
       title: "Dateiname weicht vom Schema ab",
       html: `<p class="mono">${esc(proposal)}.${ext}</p><p class="cell-sub">Geändert zu</p><p class="mono">${esc(safeFile(name))}.${ext}</p>
-        <p class="cell-sub"><button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="file-settings">Namensschema in den Einstellungen</button></p>`,
+        <p class="cell-sub">${(() => {
+          const c = state.customers.find((x) => x.name === customer || x.data?.display_name === customer);
+          return c
+            ? `<button type="button" class="link-btn" data-act="edit-customer" data-cid="${esc(c.id)}" data-focus-field="file_pattern">Dateinamenschema für ${esc(custLabel(c))} ändern</button>`
+            : `<button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="file-settings">Dateinamenschema ändern</button>`;
+        })()}</p>`,
       actions: [{ label: "Nicht mehr fragen", value: "off" }, { label: "Schema verwenden", value: "schema" }, { label: "Trotzdem ändern", value: "ok", primary: true }],
     });
     if (act === null) return null;
@@ -397,14 +402,14 @@
   const safeFile = (s) => String(s || "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "_").trim().slice(0, 180);
 
   /** Pop-up mit vorbelegtem Dateinamen; liefert den bestaetigten Namen oder null. */
-  async function askFileName(proposal, ext, title) {
+  async function askFileName(proposal, ext, title, customer) {
     const act = await showDialog({
       icon: "fa-file-pdf", title,
       html: `<div class="mail-form"><label class="field"><span class="flabel">Dateiname</span><div class="fn-field"><input id="file-name" class="mono" value="${esc(proposal)}"><span class="fn-ext">.${esc(ext)}</span></div></label></div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Speichern", value: "ok", primary: true }],
     });
     if (act !== "ok") return null;
-    return confirmedName(proposal, ext, document.getElementById("file-name")?.value);
+    return confirmedName(proposal, ext, document.getElementById("file-name")?.value, customer);
   }
 
   /* --------------------------------------------------------- PDF-Assets --- */
@@ -1458,7 +1463,7 @@
     if (!tos.length || !tos.every((t) => MAIL_RE.test(t))) return toast("Empfängeradresse fehlt oder ist ungültig", "err");
     if (mail.from && !MAIL_RE.test(mail.from)) return toast("Absenderadresse ungültig", "err");
     await rememberMailAddresses(mail, fromSaved, toSaved, draft.cust, d);
-    const chosen = await confirmedName(baseName, "pdf", fileWish);
+    const chosen = await confirmedName(baseName, "pdf", fileWish, d.customer_name);
     if (!chosen) return;
     fileName = chosen;
 
@@ -1815,6 +1820,8 @@
       const close = () => { dlg.classList.remove("open"); document.removeEventListener("keydown", onKey); resolve(null); };
       const onKey = (e) => { if (e.key === "Escape" && dlg.classList.contains("open")) close(); };
       $("#result-close").onclick = close;
+      // Link im Hinweis (z. B. zum Kunden) bricht den Vorgang ab.
+      $("#result-body").onclick = (e) => { if (e.target.closest("[data-act], .nav-tab")) { document.removeEventListener("keydown", onKey); resolve(null); } };
       document.addEventListener("keydown", onKey);
       dlg.classList.add("open");
     });
@@ -1911,7 +1918,7 @@
       const res = await api("pdf", { id });
       const bytes = window.RootsFacturX.base64ToBytes(res.pdf);
       setBusy(false);
-      const name = await askFileName(fileBase(number, customer, project), "pdf", `Rechnung ${number} herunterladen`);
+      const name = await askFileName(fileBase(number, customer, project), "pdf", `Rechnung ${number} herunterladen`, customer);
       if (name) download(bytes, name, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
@@ -2647,7 +2654,14 @@
             const t = customerTemplate(c) || state.templates[0];
             return startEditor(blankInvoice(t?.id, c));
           }
-          case "edit-customer": return customerDialog(state.customers.find((c) => c.id === ctr.dataset.cid));
+          case "edit-customer": {
+            $("#result-dialog")?.classList.remove("open");
+            customerDialog(state.customers.find((c) => c.id === (btn.dataset.cid || ctr?.dataset.cid)));
+            const ff = btn.dataset.focusField;
+            const box = ff && $(`#cust-form [name="${ff}"]`)?.closest(".field");
+            if (box) setTimeout(() => { box.scrollIntoView({ behavior: "smooth", block: "center" }); box.classList.remove("flash"); void box.offsetWidth; box.classList.add("flash"); }, 250);
+            return;
+          }
           case "new-customer": return customerDialog(null);
           case "tpl-edit": state.tplEdit = JSON.parse(JSON.stringify(state.templates.find((t) => t.id === btn.dataset.id))); return renderSettings();
           case "tpl-new": state.tplEdit = { id: null, name: "Neue Vorlage", sort: state.templates.length + 1, data: { hint: "", lang: "de", tax_case: "S19", due_days: 30, lines: [{ label: "Beratungshonorar", detail: "" }, { label: "Expenses", detail: "" }], annex: { title: "", text: "", rows: [] }, note: "" } }; return renderSettings();
