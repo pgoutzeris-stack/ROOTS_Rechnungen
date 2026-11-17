@@ -804,6 +804,8 @@
     state.view = "edit";
     resetHistory();
     render();
+    // Neue Rechnung sofort als Entwurf sichern, auch wenn sie gleich verlassen wird.
+    if (!inv.id) autosave();
   }
 
   function fieldVal(path) {
@@ -889,7 +891,7 @@
                 <b>Rechnungsdatum + Zahlungsziel</b>
                 <span>Das Zahlungsziel steht beim Kunden. Fehlt es dort, gilt die Vorlage.</span>
                 <span>Pflichtfeld der E-Rechnung.</span>
-                <span class="info-links"><button type="button" class="nav-tab" data-view="customers">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
+                <span class="info-links"><button type="button" class="nav-tab" data-view="customers" data-focus="due_days">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
               </span></span></span>`)}
               ${input("project", "Projekt", { wide: true })}
               ${input("po", "Bestellnummer")}
@@ -2447,11 +2449,26 @@
     document.addEventListener("click", async (e) => {
       const tab = e.target.closest(".nav-tab");
       if (tab) {
+        // Sprung zum Feld beim Kunden der offenen Rechnung (z. B. Zahlungsziel).
+        const focusCust = tab.dataset.focus && state.edit
+          ? state.customers.find((c) => c.name === state.edit.buyer?.name || c.data?.display_name === state.edit.buyer?.name) : null;
         if (state.view === "edit" && !(await leaveEditor())) return;
         $("#result-dialog")?.classList.remove("open");
         state.view = tab.dataset.view;
         render();
         if (tab.dataset.scroll) document.getElementById(tab.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (tab.dataset.focus && focusCust) {
+          customerDialog(focusCust);
+          const fld = $(`#cust-form [name="${tab.dataset.focus}"]`);
+          const box = fld?.closest(".field");
+          if (fld) {
+            setTimeout(() => {
+              box.scrollIntoView({ behavior: "smooth", block: "center" });
+              fld.focus({ preventScroll: true });
+              box.classList.remove("flash"); void box.offsetWidth; box.classList.add("flash");
+            }, 250);
+          }
+        }
         return;
       }
       const pill = e.target.closest(".filter-pill");
