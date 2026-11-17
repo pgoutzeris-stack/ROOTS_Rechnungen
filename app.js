@@ -301,17 +301,10 @@
     pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.classList.toggle("on", b.dataset.sep === sep));
     pb.classList.toggle("inherit", !own && !!pb.dataset.fallback);
     pb.querySelector(".pb-zone").innerHTML = parts.map(pbChip).join("") || `<span class="cell-sub">Bausteine hierher ziehen</span>`;
-    // Vorschau mit der letzten echten Rechnung (beim Kunden: dessen letzte), sonst neutrales Beispiel.
+    // Vorschau mit festen Beispielwerten, nicht mit echten Rechnungen; beim Kunden mit dessen Namen.
     const cn = pb.dataset.customer;
-    const ex = state.invoices.filter((i) => i.number && (!cn || i.customer_name === cn)).sort((a, b) => String(b.issue_date || "").localeCompare(String(a.issue_date || "")))[0];
-    const pat = own || pb.dataset.fallback || FILE_PATTERN_DEFAULT;
-    if (ex && !ex.data && ex.id && !ex._metaLoading) {
-      ex._metaLoading = true;
-      invoiceMeta(ex.id).then((m) => { if (m) { ex.data = m; if (pb.isConnected) pbRender(pb); } }).catch(() => {});
-    }
-    pb.querySelector(".pb-prev").textContent = (ex
-      ? fileBase(ex.number, ex.customer_name, ex.project ?? ex.data?.project, pat, ex.data)
-      : fileBase("237-0001", cn || "Kunde", "Projekt", pat, { period_start: "2026-01-01", period_end: "2026-03-31" })) + ".pdf";
+    pb.querySelector(".pb-prev").textContent = fileBase("237-0001", cn || "Beispielkunde", "Projekt", own || pb.dataset.fallback || FILE_PATTERN_DEFAULT,
+      { issue_date: "2026-07-03", period_start: "2026-04-01", period_end: "2026-06-30" }) + ".pdf";
   }
   function pbUpdate(pb, fn) {
     const input = pb.querySelector("input[type=hidden]");
