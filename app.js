@@ -200,6 +200,8 @@
   }
 
   const safeName = (s) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, 40);
+  /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
+  const fileBase = (number, customer, project) => ["Rechnung", number, customer, project].map(safeName).filter(Boolean).join("_");
 
   /* --------------------------------------------------------- PDF-Assets --- */
 
@@ -1141,7 +1143,7 @@
       html: `<p>${esc(inv.buyer.name)} · ${esc(money(E.totals(inv).gross))}</p>`,
       actions: [{ label: "Schließen", value: false }, { label: "PDF herunterladen", value: true, primary: true }],
     });
-    if (dl) downloadPdf(id, inv.number, inv.buyer.name);
+    if (dl) downloadPdf(id, inv.number, inv.buyer.name, inv.project);
   }
 
   /** Allgemeines Pop-up. actions: [{label, value, primary}] */
@@ -1169,7 +1171,7 @@
     try {
       await ensureFiles(inv);
       const pdf = await window.RootsInvoicePdf.render(inv, state.settings.seller || {}, await pdfAssets(), { final: false, files });
-      download(pdf, `ENTWURF_${safeName(inv.number)}_${safeName(inv.buyer.name)}.pdf`, "application/pdf");
+      download(pdf, `ENTWURF_${fileBase(inv.number, inv.buyer.name, inv.project)}.pdf`, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -1247,12 +1249,12 @@
       </div>`;
   }
 
-  async function downloadPdf(id, number, customer) {
+  async function downloadPdf(id, number, customer, project) {
     setBusy(true, "PDF wird geladen");
     try {
       const res = await api("pdf", { id });
       const bytes = window.RootsFacturX.base64ToBytes(res.pdf);
-      download(bytes, `Rechnung_${safeName(number)}_${safeName(customer)}.pdf`, "application/pdf");
+      download(bytes, `${fileBase(number, customer, project)}.pdf`, "application/pdf");
     } catch (e) {
       toast(e.message, "err");
     } finally {
@@ -1401,7 +1403,7 @@
         const pdf = window.RootsFacturX.base64ToBytes((await api("pdf", { id: inv.id })).pdf);
         const xml = new TextEncoder().encode(inv.xml || "");
         if ((await sha(pdf)) !== inv.pdf_sha256 || (await sha(xml)) !== inv.xml_sha256) throw new Error(`Rechnung ${inv.number}: Hash stimmt nicht. Export abgebrochen.`);
-        const base = `${String(inv.issue_date || "").slice(0, 4) || "ohne Datum"}/Rechnung_${safeName(inv.number)}_${safeName(inv.customer_name)}`;
+        const base = `${String(inv.issue_date || "").slice(0, 4) || "ohne Datum"}/${fileBase(inv.number, inv.customer_name, inv.project ?? inv.data?.project)}`;
         zip.file(`${base}.pdf`, pdf, { date: new Date(inv.finalized_at) });
         zip.file(`${base}_factur-x.xml`, xml, { date: new Date(inv.finalized_at) });
         manifest.push([inv.number, inv.issue_date, inv.customer_name, (inv.gross_cents / 100).toFixed(2).replace(".", ","), inv.status === "cancelled" ? "storniert" : "endgültig", inv.finalized_at, inv.cancelled_at || "", inv.cancel_reason || "", `${base}.pdf`, inv.pdf_sha256, inv.xml_sha256]);
@@ -1868,10 +1870,10 @@
           }
           case "pdf": {
             const row = state.invoices.find((i) => i.id === tr.dataset.id);
-            return downloadPdf(row.id, row.number, row.customer_name);
+            return downloadPdf(row.id, row.number, row.customer_name, row.project);
           }
-          case "dl-pdf": return downloadPdf(detail.id, detail.number, detail.customer_name);
-          case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${safeName(detail.number)}_factur-x.xml`, "application/xml");
+          case "dl-pdf": return downloadPdf(detail.id, detail.number, detail.customer_name, detail.project ?? detail.data?.project);
+          case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${fileBase(detail.number, detail.customer_name, detail.project ?? detail.data?.project)}_factur-x.xml`, "application/xml");
           case "details": {
             const d = detail, v = d.validation || {};
             const row = (k, val) => `<div class="kv"><span>${esc(k)}</span><b>${val}</b></div>`;
