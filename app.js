@@ -206,11 +206,15 @@
 
   const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
-  const FILE_PATTERN_DEFAULT = "Rechnung_{nummer}_{kunde}_{projekt}";
+  // Einheitlich fuer alle Sprachen: Nummer vorn, damit die Dateien in Vergaberreihenfolge stehen.
+  const FILE_PATTERN_DEFAULT = "{nummer}_Rechnung_{kunde}_{projekt}";
   const filePattern = () => String(state.settings?.seller?.file_pattern || "").trim() || FILE_PATTERN_DEFAULT;
   /** Dateiname nach dem Namensschema aus den Einstellungen; leere Teile fallen weg. */
-  const fileBase = (number, customer, project, pattern = filePattern()) => {
-    const teile = { nummer: safeName(number, 40), kunde: safeName(customer, 40), projekt: safeName(project, 80), jahr: String(new Date().getFullYear()) };
+  const fileBase = (number, customer, project, pattern) => {
+    // Kunde: Anzeigename aus der Kundenliste (Danone statt DANONE SA); eigenes Schema des Kunden geht vor.
+    const kunde = state.customers.find((c) => c.name === customer || c.data?.display_name === customer);
+    pattern = pattern || String(kunde?.data?.file_pattern || "").trim() || filePattern();
+    const teile = { nummer: safeName(number, 40), kunde: safeName(kunde?.data?.display_name || customer, 40), projekt: safeName(project, 80), jahr: String(new Date().getFullYear()) };
     return pattern.replace(/\{(nummer|kunde|projekt|jahr)\}/g, (_, k) => teile[k] || "")
       .replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/_+/g, "_").replace(/^[_.-]+|[_.-]+$/g, "").slice(0, 180) || safeName(number) || "Rechnung";
   };
@@ -1976,6 +1980,7 @@
         <label class="field wide"><span class="flabel">Vorlage</span><select name="template_id">${state.templates.map((t) => `<option value="${esc(t.id)}" ${customerTemplate(c)?.id === t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
+        ${f("file_pattern", "Dateiname (eigenes Schema)", d.file_pattern, `class="mono" placeholder="${esc(filePattern())}"`)}
         ${f("due_days", "Zahlungsziel (Tage)", d.due_days, `inputmode="numeric" placeholder="aus Vorlage: ${esc(customerTemplate(c)?.data?.due_days ?? 30)}"`)}
       </div>`;
     $("#cust-form").insertAdjacentHTML("afterbegin", `
@@ -2009,6 +2014,8 @@
     data.vat_print = String(data.vat_print || "").trim();
     data.display_name = String(data.display_name || "").trim();
     data.due_days = Number(String(data.due_days || "").replace(/\D/g, "")) || "";
+    data.file_pattern = String(data.file_pattern || "").trim();
+    if (data.file_pattern && !/\{nummer\}/.test(data.file_pattern)) return toast("Das Namensschema braucht {nummer}", "err");
     const tpl = state.templates.find((t) => t.id === data.template_id);
     data.tax_case = tpl?.data?.tax_case || "";
     data.lang = tpl?.data?.lang || "de";
@@ -2045,7 +2052,8 @@
         <div class="fields">
           <label class="field wide"><span class="flabel">Namensschema</span><input name="file_pattern" class="mono" value="${esc(filePattern())}" placeholder="${esc(FILE_PATTERN_DEFAULT)}"></label>
         </div>
-        <p class="cell-sub">{nummer} · {kunde} · {projekt} · {jahr} · Beispiel: <span class="mono">${esc(fileBase("237-4496", "DANONE SA", "Deployment 1D2P"))}.pdf</span></p>
+        <p class="cell-sub">{nummer} · {kunde} · {projekt} · {jahr} · Beispiel: <span class="mono">${esc(fileBase("237-4496", "Danone", "Deployment 1D2P", filePattern()))}.pdf</span></p>
+        <p class="cell-sub">Abweichendes Schema je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
         <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>
       <section class="card" id="mail-settings">
@@ -2430,7 +2438,7 @@
             const b = state.edit.buyer;
             if (!b.name) return toast("Firma fehlt", "err");
             const existing = state.customers.find((c) => c.id === state.edit.customer_id) || state.customers.find((c) => c.name === b.name);
-            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, due_days: existing?.data?.due_days || "" } });
+            await api("customer_save", { id: existing?.id || null, name: b.name, data: { logo: state.edit.buyer_logo ?? existing?.data?.logo ?? "", display_name: existing?.data?.display_name || "", street: b.street, street2: b.street2, zip: b.zip, city: b.city, country: b.country, vat_id: b.vat_id, vat_print: b.vat_print || existing?.data?.vat_print || "", hide_country: b.hide_country ?? !!existing?.data?.hide_country, email: b.email, template_id: state.edit.template || existing?.data?.template_id || "", tax_case: state.edit.tax_case, lang: state.edit.lang, contact: state.edit.ordered_by, due_days: existing?.data?.due_days || "", file_pattern: existing?.data?.file_pattern || "" } });
             state.customers = (await api("customers")).customers || [];
             return toast("Kunde gespeichert");
           }
