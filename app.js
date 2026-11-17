@@ -1141,9 +1141,155 @@
       icon: "fa-circle-check", tone: "ok",
       title: `Rechnung ${inv.number} erstellt`,
       html: `<p>${esc(inv.buyer.name)} · ${esc(money(E.totals(inv).gross))}</p>`,
-      actions: [{ label: "Schließen", value: false }, { label: "PDF herunterladen", value: true, primary: true }],
+      actions: [{ label: "Schließen", value: false }, { label: "PDF herunterladen", value: "pdf" }, { label: "Rechnung senden", value: "send", primary: true }],
     });
-    if (dl) downloadPdf(id, inv.number, inv.buyer.name, inv.project);
+    if (dl === "pdf") downloadPdf(id, inv.number, inv.buyer.name, inv.project);
+    if (dl === "send") sendInvoice(id);
+  }
+
+
+  /* -------------------------------------------------------- Versand --- */
+
+  const MAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+  function myMailFrom() {
+    const map = state.settings?.seller?.mail_senders || {};
+    return map[String(state.user?.email || "").toLowerCase()] || "";
+  }
+  const MONTHS = {
+    de: ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+    en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+  };
+  function mailDraft(d) {
+    const data = d.data || {};
+    const en = data.lang === "en";
+    const cust = state.customers.find((c) => c.id === data.customer_id) || state.customers.find((c) => c.name === d.customer_name);
+    const short = cust?.data?.display_name || d.customer_name || "";
+    const ref = /^\d{4}-\d{2}/.test(data.period_end || "") ? data.period_end : d.issue_date;
+    const m = /^(\d{4})-(\d{2})/.exec(ref || "");
+    const period = m ? `${MONTHS[en ? "en" : "de"][Number(m[2]) - 1]} ${m[1]}` : "";
+    const subject = [String(d.number || "").replace(/-/g, "_"), `${en ? "Invoice" : "Rechnung"} ${short}`.trim(), data.project].filter(Boolean).join("_");
+    const body = en
+      ? `Dear all,\n\nPlease find attached our invoice${period ? ` for ${period}` : ""}.\n\nIf you had any questions, please just let me know.\n\nMany thanks for trusting ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n`
+      : `Guten Tag,\n\nanbei erhalten Sie unsere Rechnung${period ? ` für ${period}` : ""}.\n\nBei Fragen melden Sie sich gerne jederzeit bei mir.\n\nVielen Dank für Ihr Vertrauen in ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n`;
+    return { to: cust?.data?.email || data.buyer?.email || "", subject, body, cust };
+  }
+
+  function b64(bytes) {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin).replace(/.{76}/g, "$&\r\n");
+  }
+  const encWord = (t) => /^[\x20-\x7e]*$/.test(t) ? t : `=?UTF-8?B?${btoa(unescape(encodeURIComponent(t)))}?=`;
+  /** Entwurf als .eml; X-Unsent oeffnet ihn in Outlook als neue Nachricht. */
+  function buildEml({ from, to, subject, body, pdf, fileName }) {
+    const bnd = "----=_roots_" + Math.random().toString(36).slice(2);
+    const text = new TextEncoder().encode(body.replace(/\r?\n/g, "\r\n"));
+    return [
+      "X-Unsent: 1",
+      from ? `From: ${from}` : "",
+      `To: ${to}`,
+      `Subject: ${encWord(subject)}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${bnd}"`,
+      "",
+      `--${bnd}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      b64(text),
+      `--${bnd}`,
+      `Content-Type: application/pdf; name="${fileName}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${fileName}"`,
+      "",
+      b64(pdf),
+      `--${bnd}--`,
+      "",
+    ].filter((l, i) => !(i === 1 && l === "")).join("\r\n");
+  }
+
+  async function sendInvoice(id) {
+    setBusy(true, "Rechnung wird geladen");
+    let d, pdf;
+    try {
+      d = (await api("get", { id })).invoice;
+      pdf = window.RootsFacturX.base64ToBytes((await api("pdf", { id })).pdf);
+    } catch (e) {
+      setBusy(false);
+      return toast(e.message, "err");
+    }
+    setBusy(false);
+    const draft = mailDraft(d);
+    const fileName = `${fileBase(d.number, d.customer_name, d.data?.project)}.pdf`;
+    const fromSaved = myMailFrom();
+    const toSaved = draft.to;
+    const act = await showDialog({
+      icon: "fa-paper-plane",
+      title: `Rechnung ${d.number} senden`,
+      html: `<div class="mail-form">
+        <label class="field"><span class="flabel">Von${fromSaved ? "" : " · noch nicht hinterlegt"}</span><input id="mail-from" type="email" value="${esc(fromSaved)}" placeholder="${esc(state.user?.email || "")}"></label>
+        <label class="field"><span class="flabel">An${toSaved ? "" : " · beim Kunden noch nicht hinterlegt"}</span><input id="mail-to" value="${esc(toSaved)}" placeholder="rechnungen@kunde.com"></label>
+        <label class="field"><span class="flabel">Betreff</span><input id="mail-subject" value="${esc(draft.subject)}"></label>
+        <label class="field"><span class="flabel">Text</span><textarea id="mail-body" rows="9">${esc(draft.body)}</textarea></label>
+        <p class="cell-sub"><i class="fa-solid fa-paperclip"></i> <span class="mono">${esc(fileName)}</span></p>
+        <p class="cell-sub">Neue Adressen werden gespeichert: Absender unter <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button>, Empfänger beim <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button>.</p>
+      </div>`,
+      actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "In Outlook öffnen", value: "app", primary: true }],
+    });
+    if (!act) return;
+    const val = (sel) => String(document.getElementById(sel)?.value || "").trim();
+    const mail = { from: val("mail-from"), to: val("mail-to"), subject: val("mail-subject"), body: document.getElementById("mail-body")?.value || "" };
+    const tos = mail.to.split(/[;,]\s*/).filter(Boolean);
+    if (!tos.length || !tos.every((t) => MAIL_RE.test(t))) return toast("Empfängeradresse fehlt oder ist ungültig", "err");
+    if (mail.from && !MAIL_RE.test(mail.from)) return toast("Absenderadresse ungültig", "err");
+    await rememberMailAddresses(mail, fromSaved, toSaved, draft.cust, d);
+
+    if (act === "web") return openOutlookWeb(mail, pdf, fileName);
+    const eml = new TextEncoder().encode(buildEml({ ...mail, to: tos.join(", "), pdf, fileName }));
+    const emlName = `${fileBase(d.number, d.customer_name, d.data?.project)}.eml`;
+    const ok = await download(eml, emlName, "message/rfc822");
+    const next = await showDialog({
+      icon: ok ? "fa-envelope-open-text" : "fa-triangle-exclamation", tone: ok ? "" : "bad",
+      title: ok ? "Hat sich Outlook geöffnet?" : "Outlook ließ sich nicht öffnen",
+      html: ok
+        ? `<p>Die E-Mail liegt als <span class="mono">${esc(emlName)}</span> in den Downloads. Öffnet sie sich nicht von selbst in Outlook, die Datei doppelklicken. Auf dem Mac öffnet sie sich in Outlook, wenn Outlook als Standard für .eml-Dateien eingestellt ist.</p>`
+        : `<p>Die E-Mail mit Anhang ließ sich nicht übergeben.</p>`,
+      actions: [{ label: ok ? "Ja, fertig" : "Schließen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail erneut speichern", value: "eml", primary: !ok }],
+    });
+    if (next === "web") return openOutlookWeb(mail, pdf, fileName);
+    if (next === "eml") return download(eml, emlName, "message/rfc822");
+  }
+
+  async function openOutlookWeb(mail, pdf, fileName) {
+    const go = await showDialog({
+      icon: "fa-globe",
+      title: "Outlook im Browser öffnen?",
+      html: `<p>Empfänger, Betreff und Text sind eingetragen. Den Anhang kann der Browser nicht übergeben: <span class="mono">${esc(fileName)}</span> wird gleichzeitig gespeichert und muss in Outlook per Büroklammer angehängt werden.</p>`,
+      actions: [{ label: "Abbrechen", value: false }, { label: "Öffnen", value: true, primary: true }],
+    });
+    if (!go) return;
+    await download(pdf, fileName, "application/pdf");
+    const q = new URLSearchParams({ to: mail.to.replace(/;\s*/g, ","), subject: mail.subject, body: mail.body });
+    openExternal(`https://outlook.office.com/mail/deeplink/compose?${q.toString().replace(/\+/g, "%20")}`);
+  }
+
+  async function rememberMailAddresses(mail, fromSaved, toSaved, cust, d) {
+    try {
+      if (mail.from && mail.from !== fromSaved && state.user?.email) {
+        const seller = { ...(state.settings?.seller || {}) };
+        seller.mail_senders = { ...(seller.mail_senders || {}), [state.user.email.toLowerCase()]: mail.from };
+        const res = await api("settings_save", { settings: { seller } });
+        state.settings = res.settings;
+        toast("Absender gespeichert");
+      }
+      if (mail.to && mail.to !== toSaved && cust) {
+        await api("customer_save", { id: cust.id, name: cust.name, data: { ...(cust.data || {}), email: mail.to } });
+        state.customers = (await api("customers")).customers || [];
+        toast(`Empfänger bei ${cust.data?.display_name || cust.name} gespeichert`);
+      }
+    } catch (e) {
+      toast("Adresse nicht gespeichert: " + e.message, "err");
+    }
   }
 
   /** Allgemeines Pop-up. actions: [{label, value, primary}] */
@@ -1238,6 +1384,7 @@
           <section class="card sticky">
             <h3><i class="fa-solid fa-file-invoice"></i> E-Rechnung</h3>
             <div class="side-actions">
+              ${d.status === "cancelled" ? "" : `<button class="btn-primary" data-act="send-mail"><i class="fa-solid fa-paper-plane"></i> Rechnung senden</button>`}
               <button class="btn-primary" data-act="dl-pdf"><i class="fa-solid fa-file-pdf"></i> PDF mit E-Rechnung</button>
               <button class="btn-secondary" data-act="dl-xml"><i class="fa-solid fa-code"></i> XML (CII)</button>
               <button class="btn-secondary" data-act="details"><i class="fa-solid fa-circle-info"></i> Details</button>
@@ -1534,6 +1681,13 @@
         ${!E.vatOk(seller.vat_id) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> USt-IdNr. fehlt · Reverse-Charge-Rechnungen sind gesperrt (§ 14a UStG)</p>` : ""}
         ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> IBAN-Prüfziffer falsch</p>` : ""}
       </section>
+      <section class="card" id="mail-settings">
+        <h3><i class="fa-solid fa-paper-plane"></i> Rechnungsversand</h3>
+        <div class="fields">
+          <label class="field wide"><span class="flabel">Absender für ${esc(state.user?.email || "dich")}</span><input name="mail_from" type="email" value="${esc(myMailFrom())}" placeholder="${esc(state.user?.email || "name@roots-consultants.com")}"></label>
+        </div>
+        <p class="cell-sub">Empfänger je Kunde: Feld „Rechnungs-E-Mail“ unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
+      </section>
       <div class="form-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Stammdaten speichern</button></div>`;
     renderSequences();
     renderTemplates();
@@ -1680,8 +1834,13 @@
 
   async function saveSettings(form) {
     const fd = new FormData(form);
-    const seller = {};
+    const seller = { ...(state.settings?.seller || {}) };
     SELLER_FIELDS.forEach(([k]) => { seller[k] = String(fd.get("seller." + k) || "").trim(); });
+    if (state.user?.email && fd.has("mail_from")) {
+      const from = String(fd.get("mail_from") || "").trim();
+      if (from && !MAIL_RE.test(from)) return toast("Absenderadresse ungültig", "err");
+      seller.mail_senders = { ...(seller.mail_senders || {}), [state.user.email.toLowerCase()]: from };
+    }
     seller.country = seller.country.toUpperCase();
     seller.vat_id = seller.vat_id.replace(/\s+/g, "").toUpperCase();
     if (seller.iban && !E.ibanOk(seller.iban)) return toast("IBAN-Prüfziffer falsch", "err");
@@ -1749,6 +1908,7 @@
       const tab = e.target.closest(".nav-tab");
       if (tab) {
         if (state.view === "edit" && !(await leaveEditor())) return;
+        $("#result-dialog")?.classList.remove("open");
         state.view = tab.dataset.view;
         render();
         if (tab.dataset.scroll) document.getElementById(tab.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1872,6 +2032,7 @@
             const row = state.invoices.find((i) => i.id === tr.dataset.id);
             return downloadPdf(row.id, row.number, row.customer_name, row.project);
           }
+          case "send-mail": return sendInvoice(detail.id);
           case "dl-pdf": return downloadPdf(detail.id, detail.number, detail.customer_name, detail.project ?? detail.data?.project);
           case "dl-xml": return download(new TextEncoder().encode(detail.xml), `${fileBase(detail.number, detail.customer_name, detail.project ?? detail.data?.project)}_factur-x.xml`, "application/xml");
           case "details": {

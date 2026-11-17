@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=28"></script>
-<script src="richtext.js?v=28"></script>
-<script src="einvoice.js?v=28"></script>
-<script src="layout.js?v=28"></script>
-<script src="designer.js?v=28"></script>
-<script src="pdf.js?v=28"></script>
-<script src="schematron.js?v=28"></script>
-<script src="facturx.js?v=28"></script>
-<script src="annex.js?v=28"></script>
-<script src="app.js?v=28"></script>
+<script src="ui.js?v=29"></script>
+<script src="richtext.js?v=29"></script>
+<script src="einvoice.js?v=29"></script>
+<script src="layout.js?v=29"></script>
+<script src="designer.js?v=29"></script>
+<script src="pdf.js?v=29"></script>
+<script src="schematron.js?v=29"></script>
+<script src="facturx.js?v=29"></script>
+<script src="annex.js?v=29"></script>
+<script src="app.js?v=29"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -349,6 +349,12 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .result-icon.ok{background:var(--ok-bg);color:var(--ok-text)}
 .result-icon.bad{background:var(--bad-bg);color:var(--bad-text)}
 .result-box h2{margin:0 0 .5rem}
+.result-box:has(.mail-form){width:min(640px,100%)}
+.mail-form{display:flex;flex-direction:column;gap:12px;text-align:left;margin-top:.5rem}
+.mail-form .flabel{margin-bottom:4px}
+.mail-form textarea{resize:vertical;font-family:inherit}
+.link-btn{background:none;border:0;padding:0;color:var(--brand);font:inherit;cursor:pointer}
+.link-btn:hover{text-decoration:underline}
 #result-body p{color:var(--muted);font-size:.92rem;margin:0 0 1rem}
 #result-body .std-tags{justify-content:center}
 #result-body .kv{text-align:left}
