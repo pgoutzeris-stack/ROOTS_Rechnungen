@@ -1577,6 +1577,10 @@
     new MutationObserver(keepLast).observe(head, { childList: true });
     const maybe = () => { if (!secState.at || Date.now() - secState.at > 5 * 60 * 1000) runSecurityCheck(); };
     wrap.addEventListener("mouseenter", maybe);
+    // Hover oeffnet und haelt offen; erst eine Weile nach dem Verlassen schliesst es.
+    let zu = null;
+    wrap.addEventListener("mouseenter", () => { clearTimeout(zu); wrap.classList.add("hover"); });
+    wrap.addEventListener("mouseleave", () => { zu = setTimeout(() => wrap.classList.remove("hover"), 600); });
     wrap.addEventListener("focusin", maybe);
     $("#sec-recheck").onclick = (e) => { e.stopPropagation(); runSecurityCheck(); };
     // Klick heftet das Pop-up an; es bleibt offen, bis daneben geklickt oder Escape gedrueckt wird.
