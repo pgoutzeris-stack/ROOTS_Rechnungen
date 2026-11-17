@@ -267,8 +267,8 @@
   const pbChip = (p, i) => {
     const t = PB_TOKENS.find((x) => x[0] === p.v);
     return p.k === "var"
-      ? `<span class="pb-chip" draggable="true" data-i="${i}"><i class="fa-solid ${t ? t[2] : "fa-cube"}"></i>${esc(t ? t[1] : p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`
-      : `<span class="pb-chip txt" draggable="true" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
+      ? `<span class="pb-chip" data-i="${i}"><i class="fa-solid ${t ? t[2] : "fa-cube"}"></i>${esc(t ? t[1] : p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`
+      : `<span class="pb-chip txt" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
   };
   /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
   /** Wirksames Namensschema fuer einen Kunden. */
@@ -304,7 +304,7 @@
     return metaCache.get(id);
   }
   function patternBuilder(name, value, fallback = "", customer = "") {
-    const chip = ([v, l, ic]) => `<span class="pb-chip pal" draggable="true" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`;
+    const chip = ([v, l, ic]) => `<span class="pb-chip pal" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`;
     const group = (label, html) => `<div class="pb-grp"><span class="pb-glabel">${label}</span><div class="pb-gchips">${html}</div></div>`;
     const DATE = ["datum", "datum_kompakt", "jahr", "jahr_kurz", "monat", "quartal", "zeitraum"];
     return `<div class="pb" data-fallback="${esc(fallback)}" data-customer="${esc(customer)}">
@@ -314,7 +314,7 @@
       <div class="pb-pal">
         ${group("Angaben", PB_TOKENS.filter((t) => !DATE.includes(t[0])).map(chip).join(""))}
         ${group("Datum", PB_TOKENS.filter((t) => DATE.includes(t[0])).map(chip).join(""))}
-        ${group("Text", PB_TEXTS.map((t) => `<span class="pb-chip pal txt" draggable="true" data-add="txt:${esc(t)}">${esc(t)}</span>`).join("") + `<button type="button" class="pb-chip pal txt" data-add="txt:">+ Eigener Text</button>`)}
+        ${group("Text", PB_TEXTS.map((t) => `<span class="pb-chip pal txt" data-add="txt:${esc(t)}">${esc(t)}</span>`).join("") + `<button type="button" class="pb-chip pal txt" data-add="txt:">+ Eigener Text</button>`)}
         <div class="pb-grp"><span class="pb-glabel">Trenner</span><div class="pb-seg" role="radiogroup">${PB_SEPS.map(([v, l]) => `<button type="button" class="pb-sepbtn" data-sep="${esc(v)}" title="${esc(l)}">${esc(v)}</button>`).join("")}</div>
           ${fallback ? `<button type="button" class="link-btn pb-reset">Standard verwenden</button>` : ""}</div>
       </div>
@@ -342,7 +342,7 @@
   const pbPart = (add) => {
     const [k, ...rest] = add.split(":");
     let v = rest.join(":");
-    if (k === "txt" && !v) v = safeName(prompt("Text für den Dateinamen") || "", 30);
+
     return v ? { k, v } : null;
   };
   function pbDropIndex(zone, x, y) {
@@ -350,53 +350,128 @@
     const hit = chips.findIndex((c) => { const r = c.getBoundingClientRect(); return y < r.bottom && (y < r.top || x < r.left + r.width / 2); });
     return hit < 0 ? chips.length : hit;
   }
+  /** Text-Baustein direkt in der Zeile eingeben (prompt() ist in iframes und WKWebView gesperrt). */
+  function pbEditText(pb, index, insertAt) {
+    const zone = pb.querySelector(".pb-zone");
+    const cur = pbParse(pb.querySelector("input[type=hidden]").value.trim() || pb.dataset.fallback || FILE_PATTERN_DEFAULT);
+    const inp = document.createElement("input");
+    inp.className = "pb-edit";
+    inp.value = index != null ? cur.parts[index]?.v || "" : "";
+    inp.placeholder = "Text";
+    inp.size = Math.max(6, inp.value.length + 1);
+    const chips = zone.querySelectorAll(".pb-chip");
+    if (index != null && chips[index]) chips[index].replaceWith(inp);
+    else if (insertAt != null && chips[insertAt]) zone.insertBefore(inp, chips[insertAt]);
+    else zone.appendChild(inp);
+    inp.focus();
+    let done = false;
+    const commit = (keep) => {
+      if (done) return;
+      done = true;
+      const v = keep ? safeName(inp.value, 30) : "";
+      if (!v) return pbRender(pb);
+      pbUpdate(pb, (c) => {
+        if (index != null) c.parts[index] = { k: "txt", v };
+        else c.parts.splice(insertAt != null ? insertAt : c.parts.length, 0, { k: "txt", v });
+        return c;
+      });
+    };
+    inp.addEventListener("input", () => { inp.size = Math.max(6, inp.value.length + 1); });
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(true); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); commit(false); }
+    });
+    inp.addEventListener("blur", () => commit(true));
+  }
   function wirePatternBuilders(root) {
     root.querySelectorAll(".pb").forEach((pb) => {
       if (pb.dataset.wired) return pbRender(pb);
       pb.dataset.wired = "1";
       pbRender(pb);
       const zone = pb.querySelector(".pb-zone");
+      // Ziehen mit Pointer-Events statt HTML5-Drag-and-Drop: laeuft gleich in
+      // Browser, WKWebView (Swift-App), Sandbox-iframes und auf Touch.
       let drag = null;
-      pb.addEventListener("dragstart", (e) => {
+      const clearMarks = () => { zone.classList.remove("over"); zone.querySelector(".pb-mark")?.remove(); };
+      const insideZone = (x, y) => { const r = zone.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; };
+      const placeMark = (x, y) => {
+        let mark = zone.querySelector(".pb-mark");
+        if (!mark) { mark = document.createElement("span"); mark.className = "pb-mark"; }
+        const chips = [...zone.querySelectorAll(".pb-chip:not(.dragging)")];
+        const at = pbDropIndex(zone, x, y);
+        if (chips[at]) zone.insertBefore(mark, chips[at]); else zone.appendChild(mark);
+        return at;
+      };
+      pb.addEventListener("pointerdown", (e) => {
+        if (e.button > 0 || e.target.closest(".pb-x, .pb-edit")) return;
         const c = e.target.closest(".pb-chip");
-        if (!c) return;
-        drag = c.dataset.add ? { add: c.dataset.add } : { from: Number(c.dataset.i) };
-        c.classList.add("dragging");
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", "pb");
+        if (!c || !c.dataset.add && c.dataset.i == null) return;
+        drag = { chip: c, add: c.dataset.add, from: c.dataset.i != null && !c.dataset.add ? Number(c.dataset.i) : null, x: e.clientX, y: e.clientY, on: false, id: e.pointerId };
       });
-      pb.addEventListener("dragend", () => { pb.querySelectorAll(".dragging").forEach((c) => c.classList.remove("dragging")); zone.classList.remove("over"); drag = null; });
-      zone.addEventListener("dragover", (e) => { if (drag) { e.preventDefault(); zone.classList.add("over"); } });
-      zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove("over"); });
-      zone.addEventListener("drop", (e) => {
+      const onMove = (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        if (!drag.on) {
+          if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
+          drag.on = true;
+          const r = drag.chip.getBoundingClientRect();
+          drag.dx = drag.x - r.left; drag.dy = drag.y - r.top;
+          drag.ghost = drag.chip.cloneNode(true);
+          drag.ghost.classList.add("pb-ghost");
+          drag.ghost.style.width = r.width + "px";
+          document.body.appendChild(drag.ghost);
+          drag.chip.classList.add("dragging");
+          document.body.classList.add("pb-dragging");
+        }
         e.preventDefault();
-        zone.classList.remove("over");
-        if (!drag) return;
-        const d = drag, at = pbDropIndex(zone, e.clientX, e.clientY);
+        drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px)`;
+        if (insideZone(e.clientX, e.clientY)) { zone.classList.add("over"); drag.at = placeMark(e.clientX, e.clientY); }
+        else { clearMarks(); drag.at = null; }
+      };
+      const onUp = (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const d = drag;
+        drag = null;
+        if (!d.on) return; // kein Ziehen: der Klick macht den Rest
+        d.ghost.remove();
+        d.chip.classList.remove("dragging");
+        document.body.classList.remove("pb-dragging");
+        clearMarks();
+        pb.dataset.justDragged = "1";
+        setTimeout(() => delete pb.dataset.justDragged, 0);
+        if (e.type === "pointercancel") return;
+        if (d.at == null) {
+          // Aus der Zone herausgezogen: entfernen.
+          if (d.from != null) pbUpdate(pb, (cur) => { cur.parts.splice(d.from, 1); return cur; });
+          return;
+        }
+        if (d.add === "txt:") return pbEditText(pb, null, d.at);
         pbUpdate(pb, (cur) => {
-          let item;
+          let item, at = d.at;
           if (d.add) { item = pbPart(d.add); if (!item) return; }
           else { item = cur.parts[d.from]; cur.parts.splice(d.from, 1); }
           cur.parts.splice(Math.min(at, cur.parts.length), 0, item);
           return cur;
         });
-      });
-      // Aus der Zone auf die Palette ziehen entfernt den Baustein.
-      const pal = pb.querySelector(".pb-pal");
-      pal.addEventListener("dragover", (e) => { if (drag && drag.from != null) e.preventDefault(); });
-      pal.addEventListener("drop", (e) => { e.preventDefault(); if (drag?.from != null) { const i = drag.from; pbUpdate(pb, (cur) => { cur.parts.splice(i, 1); return cur; }); } });
+      };
+      document.addEventListener("pointermove", onMove, { passive: false });
+      document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onUp);
       pb.addEventListener("click", (e) => {
+        if (pb.dataset.justDragged) return;
         const x = e.target.closest(".pb-x");
         if (x) return pbUpdate(pb, (cur) => { cur.parts.splice(Number(x.dataset.i), 1); return cur; });
         const a = e.target.closest("[data-add]");
-        if (a) { const item = pbPart(a.dataset.add); if (item) pbUpdate(pb, (cur) => { cur.parts.push(item); return cur; }); return; }
+        if (a) {
+          if (a.dataset.add === "txt:") return pbEditText(pb, null, null);
+          const item = pbPart(a.dataset.add);
+          if (item) pbUpdate(pb, (cur) => { cur.parts.push(item); return cur; });
+          return;
+        }
         if (e.target.closest(".pb-reset")) { pb.querySelector("input[type=hidden]").value = ""; pbRender(pb); }
       });
       pb.addEventListener("dblclick", (e) => {
         const c = e.target.closest(".pb-zone .pb-chip.txt");
-        if (!c) return;
-        const i = Number(c.dataset.i);
-        pbUpdate(pb, (cur) => { const v = safeName(prompt("Text", cur.parts[i].v) || "", 30); if (v) cur.parts[i].v = v; return cur; });
+        if (c) pbEditText(pb, Number(c.dataset.i), null);
       });
       pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.addEventListener("click", () => pbUpdate(pb, (cur) => ({ ...cur, sep: b.dataset.sep }))));
     });
