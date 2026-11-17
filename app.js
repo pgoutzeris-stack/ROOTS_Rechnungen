@@ -1429,9 +1429,9 @@
     box.innerHTML = `
       <div class="ov-head"><h2>Übersicht</h2>
         <div class="ov-filters">
-          <select id="ov-range">${OV_RANGES.map(([k, l]) => `<option value="${k}" ${ovFilter.range === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-          ${ovFilter.range === "custom" ? `<input id="ov-from" type="date" value="${esc(d.P.from)}"><input id="ov-to" type="date" value="${esc(d.P.to)}">` : ""}
-          <select id="ov-cust"><option value="">Alle Kunden</option>${names.map((n) => `<option ${ovFilter.customer === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+          <span class="ov-f ov-f-range"><select id="ov-range">${OV_RANGES.map(([k, l]) => `<option value="${k}" ${ovFilter.range === k ? "selected" : ""}>${l}</option>`).join("")}</select></span>
+          ${ovFilter.range === "custom" ? `<input id="ov-from" class="ov-date" inputmode="numeric" placeholder="TT.MM.JJJJ" value="${esc(window.RootsUI.isoToDe(d.P.from))}"><input id="ov-to" class="ov-date" inputmode="numeric" placeholder="TT.MM.JJJJ" value="${esc(window.RootsUI.isoToDe(d.P.to))}">` : ""}
+          <span class="ov-f ov-f-cust"><select id="ov-cust"><option value="">Alle Kunden</option>${names.map((n) => `<option ${ovFilter.customer === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></span>
         </div>
       </div>
       <div class="ov-tiles">
@@ -1465,6 +1465,7 @@
           <div class="ov-act">${d.recent.map((i) => `<button data-ov-open="${esc(i.id)}"><span class="tag sm ${i.status === "final" ? "tag-ok" : i.status === "cancelled" ? "tag-bad" : ""}">${statusTxt[i.status] || i.status}</span><span class="ov-name">${esc(i.number || "Entwurf")} · ${esc(i.customer_name || "")}${i.project ? ` · ${esc(i.project)}` : ""}</span><b>${esc(money(i.gross_cents))}</b></button>`).join("") || `<span class="ov-empty">Noch keine Rechnungen</span>`}</div>
         </div>
       </div>`;
+    window.RootsUI.enhance(box.querySelector(".ov-filters"));
     box.querySelectorAll("[data-count]").forEach((el) => countUp(el, Number(el.dataset.count) || 0));
     requestAnimationFrame(() => requestAnimationFrame(() => {
       box.querySelectorAll(".ov-bar i").forEach((el, k) => { el.style.transitionDelay = `${600 + k * 40}ms`; el.style.height = el.dataset.h + "%"; });
@@ -1474,8 +1475,11 @@
     box.onchange = (e) => {
       if (e.target.id === "ov-range") ovFilter.range = e.target.value;
       if (e.target.id === "ov-cust") ovFilter.customer = e.target.value;
-      if (e.target.id === "ov-from") ovFilter.from = e.target.value;
-      if (e.target.id === "ov-to") ovFilter.to = e.target.value;
+      if (e.target.id === "ov-from" || e.target.id === "ov-to") {
+        const iso = window.RootsUI.deToIso(e.target.value);
+        if (!iso) return toast("Datum als TT.MM.JJJJ eingeben", "err");
+        ovFilter[e.target.id === "ov-from" ? "from" : "to"] = iso;
+      }
       renderOverview();
     };
     clearInterval(ovTimer);
@@ -1575,6 +1579,11 @@
     wrap.addEventListener("mouseenter", maybe);
     wrap.addEventListener("focusin", maybe);
     $("#sec-recheck").onclick = (e) => { e.stopPropagation(); runSecurityCheck(); };
+    // Klick heftet das Pop-up an; es bleibt offen, bis daneben geklickt oder Escape gedrueckt wird.
+    $("#sec-pill").addEventListener("click", (e) => { e.stopPropagation(); wrap.classList.toggle("open"); maybe(); });
+    wrap.querySelector(".sec-pop").addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => wrap.classList.remove("open"));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") wrap.classList.remove("open"); });
     setTimeout(runSecurityCheck, 4000);
   }
 

@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=47"></script>
-<script src="richtext.js?v=47"></script>
-<script src="einvoice.js?v=47"></script>
-<script src="layout.js?v=47"></script>
-<script src="designer.js?v=47"></script>
-<script src="pdf.js?v=47"></script>
-<script src="schematron.js?v=47"></script>
-<script src="facturx.js?v=47"></script>
-<script src="annex.js?v=47"></script>
-<script src="app.js?v=47"></script>
+<script src="ui.js?v=48"></script>
+<script src="richtext.js?v=48"></script>
+<script src="einvoice.js?v=48"></script>
+<script src="layout.js?v=48"></script>
+<script src="designer.js?v=48"></script>
+<script src="pdf.js?v=48"></script>
+<script src="schematron.js?v=48"></script>
+<script src="facturx.js?v=48"></script>
+<script src="annex.js?v=48"></script>
+<script src="app.js?v=48"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -70,13 +70,15 @@ button:disabled{cursor:not-allowed}
 .header-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .sec-wrap{position:relative;outline:none}
-.sec-pill{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;font-weight:600;color:var(--muted);cursor:default;user-select:none}
+.sec-pill{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;font-weight:600;color:var(--muted);user-select:none}
 .sec-pill i{color:var(--brand)}
 .sec-pill.warn i{color:#d97706}
 .sec-pill.bad i{color:#dc2626}
 .sec-pop{display:none;position:absolute;right:0;top:100%;margin-top:8px;width:300px;max-height:72vh;overflow:auto;z-index:300;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);box-shadow:0 12px 32px rgba(0,0,0,.14);font-size:.8125rem;line-height:1.4}
 .sec-pop::before{content:"";position:absolute;left:0;right:0;top:-10px;height:10px}
-.sec-wrap:hover .sec-pop,.sec-wrap:focus-within .sec-pop{display:block}
+.sec-wrap:hover .sec-pop,.sec-wrap.open .sec-pop{display:block}
+.sec-pill{cursor:pointer}
+.sec-wrap.open .sec-pill{border-color:var(--brand)}
 .sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .sec-group{font-size:.7rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 6px}
 .sec-row{display:grid;grid-template-columns:10px 1fr;gap:10px;align-items:baseline;padding:4px 0}
@@ -582,7 +584,17 @@ input:disabled{background:var(--surface);color:var(--muted)}
 .ov-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 20px}
 .ov-head h2{margin:0}
 .ov-filters{display:flex;gap:8px;flex-wrap:wrap}
-.ov-filters select,.ov-filters input{height:36px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--ink);font:inherit;font-size:.85rem;width:auto}
+.ov-f{display:block}
+.ov-f-range .cs{width:200px}.ov-f-cust .cs{width:240px}
+.ov-filters .cs-trigger{height:38px;border-radius:999px;font-size:.875rem;padding:0 14px}
+.ov-filters .cs-value{display:flex;align-items:center;gap:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ov-filters .cs-value::before{font-family:"Font Awesome 6 Free";font-weight:900;color:var(--brand);font-size:.8rem}
+.ov-f-range .cs-value::before{content:"\f133"}
+.ov-f-cust .cs-value::before{content:"\f1ad"}
+.ov-filters .cs-options{min-width:100%}
+.ov-filters .cs-trigger.placeholder{color:var(--ink)}
+.ov-date{height:38px;width:130px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--ink);font:inherit;font-size:.875rem}
+.ov-date:focus{outline:none;border-color:var(--brand);box-shadow:var(--shadow-focus)}
 .ov-stamp{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:8px}
 .ov-live{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.5);animation:ovPulse 2s infinite}
 @keyframes ovPulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.45)}70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
