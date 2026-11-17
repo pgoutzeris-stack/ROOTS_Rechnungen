@@ -270,11 +270,11 @@
       : `<span class="pb-chip txt" draggable="true" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
   };
   /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
-  function patternBuilder(name, value, fallback = "") {
+  function patternBuilder(name, value, fallback = "", customer = "") {
     const chip = ([v, l, ic]) => `<span class="pb-chip pal" draggable="true" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`;
     const group = (label, html) => `<div class="pb-grp"><span class="pb-glabel">${label}</span><div class="pb-gchips">${html}</div></div>`;
     const DATE = ["datum", "datum_kompakt", "jahr", "jahr_kurz", "monat", "quartal", "zeitraum"];
-    return `<div class="pb" data-fallback="${esc(fallback)}">
+    return `<div class="pb" data-fallback="${esc(fallback)}" data-customer="${esc(customer)}">
       <input type="hidden" name="${esc(name)}" value="${esc(value)}">
       <div class="pb-zone"></div>
       <div class="pb-prev mono"></div>
@@ -294,7 +294,13 @@
     pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.classList.toggle("on", b.dataset.sep === sep));
     pb.classList.toggle("inherit", !own && !!pb.dataset.fallback);
     pb.querySelector(".pb-zone").innerHTML = parts.map(pbChip).join("") || `<span class="cell-sub">Bausteine hierher ziehen</span>`;
-    pb.querySelector(".pb-prev").textContent = fileBase("237-4496", "Danone", "Deployment 1D2P", own || pb.dataset.fallback || FILE_PATTERN_DEFAULT, { period_start: "2026-04-01", period_end: "2026-06-30", issue_date: "2026-07-03" }) + ".pdf";
+    // Vorschau mit der letzten echten Rechnung (beim Kunden: dessen letzte), sonst neutrales Beispiel.
+    const cn = pb.dataset.customer;
+    const ex = state.invoices.filter((i) => i.number && (!cn || i.customer_name === cn)).sort((a, b) => String(b.issue_date || "").localeCompare(String(a.issue_date || "")))[0];
+    const pat = own || pb.dataset.fallback || FILE_PATTERN_DEFAULT;
+    pb.querySelector(".pb-prev").textContent = (ex
+      ? fileBase(ex.number, ex.customer_name, ex.project ?? ex.data?.project, pat, ex.data)
+      : fileBase("237-0001", cn || "Kunde", "Projekt", pat, { period_start: "2026-01-01", period_end: "2026-03-31" })) + ".pdf";
   }
   function pbUpdate(pb, fn) {
     const input = pb.querySelector("input[type=hidden]");
@@ -2137,7 +2143,7 @@
         ${f("email", "Rechnungs-E-Mail", d.email)}
         ${f("contact", "Kontakt", d.contact)}
         ${f("due_days", "Zahlungsziel (Tage)", d.due_days, `inputmode="numeric" placeholder="aus Vorlage: ${esc(customerTemplate(c)?.data?.due_days ?? 30)}"`)}
-        <div class="field wide"><span class="flabel">Dateiname</span>${patternBuilder("file_pattern", d.file_pattern || "", filePattern())}</div>
+        <div class="field wide"><span class="flabel">Dateiname</span>${patternBuilder("file_pattern", d.file_pattern || "", filePattern(), c?.name || "")}</div>
       </div>`;
     $("#cust-form").insertAdjacentHTML("afterbegin", `
       <div class="buyer-head">
