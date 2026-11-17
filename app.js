@@ -1246,7 +1246,7 @@
         <p class="cell-sub"><i class="fa-solid fa-paperclip"></i> <span class="mono">${esc(fileName)}</span></p>
         <p class="cell-sub">Adressen werden gespeichert · <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button> · <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </div>`,
-      actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "In Outlook öffnen", value: "app", primary: true }],
+      actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail herunterladen", value: "app", primary: true }],
     });
     if (!act) return;
     const val = (sel) => String(document.getElementById(sel)?.value || "").trim();
@@ -1260,23 +1260,17 @@
     const eml = new TextEncoder().encode(buildEml({ ...mail, to: tos.join(", "), pdf, fileName }));
     const emlName = `${fileBase(d.number, d.customer_name, d.data?.project)}.eml`;
     const res = await saveEml(eml, emlName);
+    if (res.ok) return toast("E-Mail in den Downloads, per Doppelklick in Outlook öffnen");
     const next = await showDialog({
-      icon: res.ok ? "fa-envelope-open-text" : "fa-triangle-exclamation", tone: res.ok ? "" : "bad",
-      title: res.ok ? "Hat sich Outlook geöffnet?" : "E-Mail ließ sich nicht speichern",
-      html: res.ok
-        ? `<p>Die E-Mail liegt auch als <span class="mono">${esc(emlName)}</span> in den Downloads.</p>`
-        : `<p>Outlook im Browser oder das Mail-Programm öffnen, das PDF wird dabei gespeichert.</p>${res.reason ? `<p class="cell-sub">${esc(res.reason)}</p>` : ""}`,
-      actions: [
-        { label: "Mail-Programm", value: "mailto" },
-        { label: "E-Mail erneut speichern", value: "eml" },
-        { label: "Outlook im Browser", value: "web", primary: !res.ok },
-      ],
+      icon: "fa-triangle-exclamation", tone: "bad",
+      title: "Download nicht möglich",
+      html: res.reason ? `<p class="cell-sub">${esc(res.reason)}</p>` : "",
+      actions: [{ label: "Abbrechen", value: null }, { label: "Erneut versuchen", value: "eml" }, { label: "Outlook im Browser", value: "web", primary: true }],
     });
     if (next === "web") return openOutlookWeb(mail, pdf, fileName);
-    if (next === "mailto") return openMailto(mail, pdf, fileName);
     if (next === "eml") {
       const again = await saveEml(eml, emlName);
-      toast(again.ok ? `${emlName} gespeichert` : "Speichern nicht möglich", again.ok ? "ok" : "err");
+      toast(again.ok ? "E-Mail in den Downloads, per Doppelklick in Outlook öffnen" : "Download nicht möglich", again.ok ? "ok" : "err");
     }
   }
 
@@ -1301,18 +1295,7 @@
     return { ok: false, reason: reasons.join(" · ") };
   }
 
-  /** Standard-Mailprogramm per mailto, ohne Anhang; das PDF wird gespeichert. */
-  async function openMailto(mail, pdf, fileName) {
-    await download(pdf, fileName, "application/pdf");
-    const q = (o) => Object.entries(o).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-    let url = `mailto:${mail.to.split(/[;,]\s*/).map(encodeURIComponent).join(",")}?${q({ subject: mail.subject, body: mail.body })}`;
-    if (url.length > 2000) {
-      url = `mailto:${mail.to.split(/[;,]\s*/).map(encodeURIComponent).join(",")}?${q({ subject: mail.subject })}`;
-      if (copyText(mail.body)) toast("Text in der Zwischenablage, ins Mail-Programm einfügen");
-    }
-    openExternal(url);
-    toast(`${fileName} gespeichert, bitte anhängen`);
-  }
+
 
   async function openOutlookWeb(mail, pdf, fileName) {
     const go = await showDialog({
@@ -1545,6 +1528,11 @@
   function wireSecurity() {
     const wrap = $("#sec-wrap");
     if (!wrap) return;
+    // Die Intranet-Bruecke haengt "Online" hinten an; das Schloss gehoert rechts daneben.
+    const head = wrap.parentElement;
+    const keepLast = () => { if (head.lastElementChild !== wrap) head.appendChild(wrap); };
+    keepLast();
+    new MutationObserver(keepLast).observe(head, { childList: true });
     const maybe = () => { if (!secState.at || Date.now() - secState.at > 5 * 60 * 1000) runSecurityCheck(); };
     wrap.addEventListener("mouseenter", maybe);
     wrap.addEventListener("focusin", maybe);
