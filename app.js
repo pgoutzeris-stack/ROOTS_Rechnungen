@@ -207,7 +207,7 @@
   const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
   // Einheitlich fuer alle Sprachen: Nummer vorn, damit die Dateien in Vergaberreihenfolge stehen.
-  const FILE_PATTERN_DEFAULT = "{nummer}_Rechnung_{kunde}_{projekt}";
+  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice_{kunde}_{projekt}";
   const filePattern = () => String(state.settings?.seller?.file_pattern || "").trim() || FILE_PATTERN_DEFAULT;
   /** Dateiname nach dem Namensschema aus den Einstellungen; leere Teile fallen weg. */
   const fileBase = (number, customer, project, pattern) => {
