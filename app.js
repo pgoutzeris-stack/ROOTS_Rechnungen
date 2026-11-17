@@ -702,7 +702,8 @@
               ${input("period_end", "Leistung bis", { type: "date" })}
               ${input("due_date", inv.due_days ? `Fällig am · ${esc(inv.due_days)} Tage` : "Fällig am", { type: "date" }).replace("</span>", ` <span class="info-tip" tabindex="0"><i class="fa-solid fa-circle-info"></i><span class="info-pop" role="tooltip">
                 <b>Rechnungsdatum + Zahlungsziel</b>
-                <span>Zahlungsziel aus Kunde, sonst Vorlage, sonst 30 Tage. Pflichtfeld der E-Rechnung.</span>
+                <span>Das Zahlungsziel steht beim Kunden. Fehlt es dort, gilt die Vorlage.</span>
+                <span>Pflichtfeld der E-Rechnung.</span>
                 <span class="info-links"><button type="button" class="nav-tab" data-view="customers">Zahlungsziel je Kunde</button><button type="button" class="nav-tab" data-view="settings" data-scroll="tpl-settings">Vorlagen</button></span>
               </span></span></span>`)}
               ${input("project", "Projekt", { wide: true })}
@@ -1255,7 +1256,7 @@
       icon: ok ? "fa-envelope-open-text" : "fa-triangle-exclamation", tone: ok ? "" : "bad",
       title: ok ? "Hat sich Outlook geöffnet?" : "Outlook ließ sich nicht öffnen",
       html: ok
-        ? `<p>Sonst <span class="mono">${esc(emlName)}</span> in den Downloads doppelklicken.</p>`
+        ? `<p>Die E-Mail liegt auch als <span class="mono">${esc(emlName)}</span> in den Downloads.</p>`
         : "",
       actions: [{ label: ok ? "Ja, fertig" : "Schließen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail erneut speichern", value: "eml", primary: !ok }],
     });
