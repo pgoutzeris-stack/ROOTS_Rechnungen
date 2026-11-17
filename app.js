@@ -1697,7 +1697,7 @@
         </div>
         ${!E.vatOk(seller.vat_id) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> USt-IdNr. fehlt · Reverse-Charge-Rechnungen sind gesperrt (§ 14a UStG)</p>` : ""}
         ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> IBAN-Prüfziffer falsch</p>` : ""}
-        <div class="card-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
+        <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>
       <section class="card" id="mail-settings">
         <h3><i class="fa-solid fa-paper-plane"></i> Rechnungsversand</h3>
@@ -1709,7 +1709,7 @@
           <label class="field wide"><span class="flabel">Mailtext Englisch</span><textarea name="mail_text_en" rows="8">${esc(mailText("en"))}</textarea></label>
         </div>
         <p class="cell-sub">{zeitraum} = Leistungsmonat · Empfänger je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
-        <div class="card-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
+        <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>`;
     renderSequences();
     renderTemplates();
