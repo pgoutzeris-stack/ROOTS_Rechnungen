@@ -1722,9 +1722,6 @@
     box.innerHTML = `
       <div class="card-head"><h3><i class="fa-solid fa-hashtag"></i> Nummernkreise</h3><button class="btn-ghost sm" data-act="seq-new"><i class="fa-solid fa-plus"></i> Nummernkreis</button></div>
       <div class="seq-list">${state.sequences.map((q) => {
-        const used = state.templates.filter((t) => t.data?.sequence_id === q.id).map((t) => t.name);
-        const next = previewNumber(q);
-        const n2 = previewNumbers(q, 3).slice(1).join(", ");
         return `
         <div class="seq-item" data-seq="${esc(q.id)}">
           <div class="seq-head">
@@ -1736,11 +1733,6 @@
             <label class="field"><span class="flabel">Präfix</span><input data-seq-f="prefix" value="${esc(q.prefix)}" class="mono"></label>
             <label class="field"><span class="flabel">Schrittweite</span><input data-seq-f="step" inputmode="numeric" value="${esc(q.step)}" class="mono"></label>
             <label class="field"><span class="flabel">${q.confirmed_at ? "Nächste Nummer" : "Erste Rechnungsnummer"}</span><input data-seq-f="next_number" inputmode="numeric" value="${esc(q.next_number ?? "")}" placeholder="z. B. 4411" class="mono ${q.next_number == null ? "invalid" : ""}"></label>
-            <div class="field wide seq-meta">
-              <div class="seq-stat"><span class="seq-k">Nächste Rechnung</span><b class="mono seq-next">${next ? esc(next) : "Startnummer fehlt"}</b></div>
-              <div class="seq-stat"><span class="seq-k">Danach</span><span class="mono">${n2 ? n2.split(", ").map(esc).join("<br>") : "–"}</span></div>
-              <div class="seq-stat"><span class="seq-k">Vorlagen</span><span class="seq-chips">${used.length ? used.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("") : "keine"}</span></div>
-            </div>
           </div>
           <div class="modal-actions">
             <button class="btn-secondary" data-act="seq-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
