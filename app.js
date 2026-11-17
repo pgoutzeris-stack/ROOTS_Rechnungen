@@ -1697,6 +1697,7 @@
         </div>
         ${!E.vatOk(seller.vat_id) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> USt-IdNr. fehlt · Reverse-Charge-Rechnungen sind gesperrt (§ 14a UStG)</p>` : ""}
         ${seller.iban && !E.ibanOk(seller.iban) ? `<p class="warn-line"><i class="fa-solid fa-triangle-exclamation"></i> IBAN-Prüfziffer falsch</p>` : ""}
+        <div class="card-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>
       <section class="card" id="mail-settings">
         <h3><i class="fa-solid fa-paper-plane"></i> Rechnungsversand</h3>
@@ -1708,8 +1709,8 @@
           <label class="field wide"><span class="flabel">Mailtext Englisch</span><textarea name="mail_text_en" rows="8">${esc(mailText("en"))}</textarea></label>
         </div>
         <p class="cell-sub">{zeitraum} = Leistungsmonat · Empfänger je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
-      </section>
-      <div class="form-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Stammdaten speichern</button></div>`;
+        <div class="card-actions"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
+      </section>`;
     renderSequences();
     renderTemplates();
   }
@@ -1735,11 +1736,11 @@
             <label class="field"><span class="flabel">Präfix</span><input data-seq-f="prefix" value="${esc(q.prefix)}" class="mono"></label>
             <label class="field"><span class="flabel">Schrittweite</span><input data-seq-f="step" inputmode="numeric" value="${esc(q.step)}" class="mono"></label>
             <label class="field"><span class="flabel">${q.confirmed_at ? "Nächste Nummer" : "Erste Rechnungsnummer"}</span><input data-seq-f="next_number" inputmode="numeric" value="${esc(q.next_number ?? "")}" placeholder="z. B. 4411" class="mono ${q.next_number == null ? "invalid" : ""}"></label>
-            <dl class="field wide seq-meta">
-              <dt>Nächste Rechnung</dt><dd>${next ? `<b class="mono">${esc(next)}</b>` : "Startnummer fehlt"}</dd>
-              ${n2 ? `<dt>Danach</dt><dd class="mono">${n2.split(", ").map(esc).join(" · ")}</dd>` : ""}
-              <dt>Vorlagen</dt><dd>${used.length ? used.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("") : "keine"}</dd>
-            </dl>
+            <div class="field wide seq-meta">
+              <div class="seq-stat"><span class="seq-k">Nächste Rechnung</span><b class="mono seq-next">${next ? esc(next) : "Startnummer fehlt"}</b></div>
+              <div class="seq-stat"><span class="seq-k">Danach</span><span class="mono">${n2 ? n2.split(", ").map(esc).join("<br>") : "–"}</span></div>
+              <div class="seq-stat"><span class="seq-k">Vorlagen</span><span class="seq-chips">${used.length ? used.map((n) => `<span class="seq-chip">${esc(n)}</span>`).join("") : "keine"}</span></div>
+            </div>
           </div>
           <div class="modal-actions">
             <button class="btn-secondary" data-act="seq-save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
