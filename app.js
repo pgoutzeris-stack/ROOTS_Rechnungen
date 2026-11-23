@@ -3043,3 +3043,22 @@
     boot();
   });
 })();
+
+// Info-Pop in Tabellen: fixed positionieren, damit overflow der Tabelle ihn nicht abschneidet.
+(function () {
+  function place(e) {
+    const tip = e.target.closest && e.target.closest(".table-wrap .info-tip");
+    if (!tip) return;
+    const pop = tip.querySelector(".info-pop");
+    if (!pop) return;
+    const r = tip.getBoundingClientRect();
+    const w = 300, h = pop.offsetHeight || 60;
+    let left = Math.min(Math.max(8, r.left - 12), window.innerWidth - w - 8);
+    let top = r.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
+  document.addEventListener("mouseover", place, true);
+  document.addEventListener("focusin", place, true);
+})();
