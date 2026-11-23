@@ -246,7 +246,7 @@
     return pattern.replace(/\{([a-z_]+)\}/g, (_, k) => teile[k] || "")
       .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ")
       .replace(/ *_[ _]*/g, "_").replace(/ {2,}/g, " ").replace(/([.-])\1+/g, "$1")
-      .replace(/^[_.\- ]+|[_.\- ]+$/g, "").slice(0, 180).trim() || safeName(number) || "Rechnung";
+      .replace(/^[_.\- ]+|[_.\- ]+$/g, "").slice(0, 180).trim().replace(/^/, meta.doc_type === "storno" || row?.doc_type === "storno" ? "Storno_" : "") || safeName(number) || "Rechnung";
   };
 
   // Baukasten fuer das Namensschema: Bausteine per Drag and Drop anordnen.
@@ -786,7 +786,20 @@
     }
   }
 
+  /** Stornorechnung (Gutschrift 381) als Entwurf aus einer endgueltigen Rechnung. */
+  function startStorno(d) {
+    const src = JSON.parse(JSON.stringify(d.data || {}));
+    delete src.number_manual;
+    const day = today();
+    startEditor({
+      ...src, id: null, number: "",
+      doc_type: "storno", storno_of: d.id, storno_of_number: d.number, storno_of_date: d.issue_date,
+      issue_date: day, due_date: day,
+    });
+  }
+
   function statusTag(inv) {
+    if (inv.status === "final" && inv.doc_type === "storno") return `<span class="tag tag-bad"><i class="fa-solid fa-rotate-left"></i> Stornorechnung</span>`;
     if (inv.status === "final") return `<span class="tag tag-ok"><i class="fa-solid fa-circle-check"></i> E-Rechnung</span>`;
     if (inv.status === "cancelled") return `<span class="tag tag-bad"><i class="fa-solid fa-circle-xmark"></i> Storniert</span>`;
     return `<span class="tag tag-draft"><i class="fa-regular fa-file-lines"></i> Entwurf</span>`;
@@ -1018,7 +1031,7 @@
     $("#editor").innerHTML = `
       <div class="page-head">
         <button class="btn-ghost" data-act="back"><i class="fa-solid fa-arrow-left"></i> Rechnungen</button>
-        <h2>${inv.id ? "Rechnung " + esc(inv.number) : "Neue Rechnung"}</h2>
+        <h2>${inv.doc_type === "storno" ? `Stornorechnung zu ${esc(inv.storno_of_number)}` : inv.id ? "Rechnung " + esc(inv.number) : "Neue Rechnung"}</h2>
         <span id="edit-state"></span>
         <div class="head-actions">
           <span id="save-state" class="save-state"></span>
@@ -1028,7 +1041,7 @@
           ${inv.id && !inv.number ? `<button class="btn-danger-ghost" data-act="delete-draft" title="Entwurf löschen"><i class="fa-solid fa-trash-can"></i></button>` : ""}
           <button class="btn-secondary" data-act="preview"><i class="fa-solid fa-download"></i> Entwurf</button>
           <button class="btn-secondary" data-act="save"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-          <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-file-circle-check"></i> Rechnung erstellen</button>
+          <button class="btn-primary" data-act="finalize" id="btn-finalize"><i class="fa-solid fa-file-circle-check"></i> ${inv.doc_type === "storno" ? "Stornorechnung erstellen" : "Rechnung erstellen"}</button>
         </div>
       </div>
       <div class="editor-split">
@@ -1336,7 +1349,7 @@
     });
     state.edit.id = res.id;
     const idx = state.invoices.findIndex((i) => i.id === res.id);
-    const listRow = { id: res.id, number: inv.number, status: "draft", customer_name: inv.buyer.name, issue_date: inv.issue_date, tax_case: inv.tax_case, gross_cents: t.gross, project: inv.project };
+    const listRow = { id: res.id, number: inv.number, status: "draft", customer_name: inv.buyer.name, issue_date: inv.issue_date, tax_case: inv.tax_case, gross_cents: t.gross, project: inv.project, doc_type: inv.doc_type };
     if (idx >= 0) state.invoices[idx] = { ...state.invoices[idx], ...listRow };
     else state.invoices.unshift(listRow);
     editorSnapshot = JSON.stringify(normalized(state.edit));
@@ -1429,8 +1442,8 @@
     const warns = issues.filter((m) => m.level === "warn");
     const go = await showDialog({
       icon: "fa-file-circle-check", tone: "ok",
-      title: `Rechnung ${preview} erstellen?`,
-      html: `<p>Danach ist sie unveränderlich. Korrekturen nur über Storno.</p>${warns.length ? issueList(warns) : ""}`,
+      title: `${inv.doc_type === "storno" ? "Stornorechnung" : "Rechnung"} ${preview} erstellen?`,
+      html: `<p>${inv.doc_type === "storno" ? `Rechnung ${esc(inv.storno_of_number)} wird damit storniert. ` : ""}Danach ist sie unveränderlich. Korrekturen nur über Storno.</p>${warns.length ? issueList(warns) : ""}`,
       actions: [{ label: "Abbrechen", value: false }, { label: "Erstellen", value: true, primary: true }],
     });
     if (!go) return;
@@ -1487,7 +1500,7 @@
     await openDetail(id);
     const dl = await showDialog({
       icon: "fa-circle-check", tone: "ok",
-      title: `Rechnung ${inv.number} erstellt`,
+      title: `${inv.doc_type === "storno" ? "Stornorechnung" : "Rechnung"} ${inv.number} erstellt`,
       html: `<p>${esc(inv.buyer.name)} · ${esc(money(E.totals(inv).gross))}</p>`,
       actions: [{ label: "Schließen", value: false }, { label: "PDF herunterladen", value: "pdf" }, { label: "Rechnung senden", value: "send", primary: true }],
     });
@@ -1722,7 +1735,7 @@
     const byC = (i) => !ovFilter.customer || i.customer_name === ovFilter.customer;
     const inP = (i, a, b) => i.issue_date && i.issue_date >= a && i.issue_date <= b;
     const sum = (list, f = "net_cents") => list.reduce((a, i) => a + (Number(i[f]) || 0), 0);
-    const fin = state.invoices.filter((i) => i.status === "final" && byC(i));
+    const fin = state.invoices.filter((i) => i.status === "final" && i.doc_type !== "storno" && byC(i));
     const finP = fin.filter((i) => inP(i, P.from, P.to));
     const finPrev = fin.filter((i) => inP(i, P.pFrom, P.pTo));
     const today0 = today(), in30 = addDays(today0, 30);
@@ -2046,7 +2059,7 @@
               <button class="btn-secondary" data-act="dl-xml"><i class="fa-solid fa-code"></i> XML (CII)</button>
               <button class="btn-secondary" data-act="details"><i class="fa-solid fa-circle-info"></i> Details</button>
               <button class="btn-secondary" data-act="journal"><i class="fa-solid fa-clock-rotate-left"></i> Verlauf</button>
-              ${d.status === "final" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="fa-solid fa-circle-xmark"></i> Stornieren</button>` : ""}
+              ${d.status === "final" && d.data?.doc_type !== "storno" ? `<button class="btn-danger-ghost" data-act="cancel"><i class="fa-solid fa-circle-xmark"></i> Stornieren</button>` : ""}
             </div>
           </section>
         </aside>
@@ -2798,7 +2811,16 @@
             });
           }
           case "cancel": {
-            const reason = await confirmDialog(`Rechnung ${detail.number} stornieren?`, "Die Rechnung bleibt gespeichert und wird als storniert markiert. Eine Gutschrift an den Kunden ist separat zu erstellen.", "Stornieren", true);
+            // Schon verschickt oder gebucht: Stornorechnung mit eigener Nummer. Nur intern: als storniert markieren.
+            const how = await showDialog({
+              icon: "fa-circle-xmark", tone: "bad",
+              title: `Rechnung ${detail.number} stornieren`,
+              html: `<p>Wurde die Rechnung schon verschickt oder beim Kunden gebucht, braucht es eine Stornorechnung.</p>`,
+              actions: [{ label: "Abbrechen", value: null }, { label: "Nur als storniert markieren", value: "mark" }, { label: "Stornorechnung erstellen", value: "storno", primary: true }],
+            });
+            if (how === "storno") return startStorno(detail);
+            if (how !== "mark") return;
+            const reason = await confirmDialog(`Rechnung ${detail.number} als storniert markieren?`, "Es entsteht keine Stornorechnung. Nur für Rechnungen, die nie verschickt wurden.", "Markieren", true);
             if (!reason) return;
             await api("cancel", { id: detail.id, reason });
             await refresh();

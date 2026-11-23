@@ -23,6 +23,7 @@
       ceo: "Geschäftsführer", seat: "Sitz der Gesellschaft", taxno: "Steuernummer", vat: "USt-IdNr.", buyerVat: "USt-IdNr. Kunde:",
       annex: "Anlage", e: "E-Rechnung nach EN 16931 · Factur-X / ZUGFeRD, Profil EN 16931 · Datensatz eingebettet als factur-x.xml",
       draft: "ENTWURF",
+      stornoTitle: "STORNORECHNUNG", stornoRef: "Storno zu Rechnung:",
     },
     en: {
       title: "INVOICE", number: "Invoice Number:", project: "Project:", period: "Delivery Period:",
@@ -33,6 +34,7 @@
       ceo: "Managing Director", seat: "Registered office", taxno: "Tax number", vat: "VAT ID", buyerVat: "Customer VAT ID:",
       annex: "Appendix", e: "Electronic invoice according to EN 16931 · Factur-X / ZUGFeRD, profile EN 16931 · embedded as factur-x.xml",
       draft: "DRAFT",
+      stornoTitle: "CREDIT NOTE", stornoRef: "Cancels invoice:",
     },
   };
 
@@ -69,10 +71,12 @@
 
   async function render(inv, seller, assets, opts = {}) {
     const lang = inv.lang === "en" ? "en" : "de";
-    const L = T[lang];
+    // Stornorechnung: eigener Titel, Bezug auf die Rechnung, Betraege mit Minus.
+    const storno = inv.doc_type === "storno";
+    const L = storno ? { ...T[lang], title: T[lang].stornoTitle } : T[lang];
     const tc = E.TAX_CASES[inv.tax_case] || E.TAX_CASES.S19;
     const t = E.totals(inv);
-    const money = (c) => E.money(c, "de");
+    const money = (c) => E.money(storno && c ? -c : c, "de");
     const date = (iso) => E.fmtDate(iso, lang);
 
     const doc = await PDFDocument.create({ updateMetadata: false });
@@ -151,6 +155,7 @@
     y -= 26;
     const meta = [
       [L.number, inv.number, "number"],
+      ...(storno ? [[L.stornoRef, `${inv.storno_of_number || ""}${inv.storno_of_date ? (lang === "en" ? " dated " : " vom ") + date(inv.storno_of_date) : ""}`, "storno_ref"]] : []),
       [L.project, inv.project, "project"],
       [L.period, inv.period_start && inv.period_end ? periodText(inv.period_start, inv.period_end, date) : "", "period"],
       [L.cost, inv.cost_center, "cost_center"],
@@ -191,10 +196,12 @@
 
     mark("totals", ML, totalsTop, W - MR, y + 22);
     y -= 6;
+    if (!storno) {
     wrap(L.pay, R, 9.5, CW).forEach((ln) => { text(ln, ML, y); y -= 12.5; });
     y -= 3;
     text(seller.name, ML, y, { bold: true }); y -= 12.5;
     text(`${seller.bank}, IBAN: ${seller.iban}, BIC: ${seller.bic}`, ML, y); y -= 24;
+    }
     wrap(L.thanks, R, 9.5, CW).forEach((ln) => { text(ln, ML, y); y -= 12.5; });
     if (y < 90) throw new Error("Seite 1 läuft in die Fußzeile. Positionen kürzen oder in die Anlage verschieben.");
     }
@@ -319,7 +326,7 @@
     }
 
     /* ---------------- PDF/A-Voraussetzungen */
-    const title = `${lang === "en" ? "Invoice" : "Rechnung"} ${inv.number}`;
+    const title = `${storno ? (lang === "en" ? "Credit note" : "Stornorechnung") : lang === "en" ? "Invoice" : "Rechnung"} ${inv.number}`;
     doc.setTitle(title, { showInWindowTitleBar: true });
     doc.setAuthor(seller.name);
     doc.setSubject(`${title} · ${b.name || ""}`);

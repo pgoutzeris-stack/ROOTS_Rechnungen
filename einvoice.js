@@ -171,14 +171,17 @@
       (tc.rate === null ? "" : `<ram:RateApplicablePercent>${tc.rate}</ram:RateApplicablePercent>`) +
       "</ram:ApplicableTradeTax>";
 
-    const terms = lang === "en"
-      ? `Payable without deduction by ${fmtDate(inv.due_date, "en")}.`
-      : `Zahlbar ohne Abzug bis ${fmtDate(inv.due_date, "de")}.`;
+    const storno = inv.doc_type === "storno";
+    const terms = storno
+      ? (lang === "en" ? `Cancels invoice ${inv.storno_of_number} dated ${fmtDate(inv.storno_of_date, "en")}.` : `Storniert Rechnung ${inv.storno_of_number} vom ${fmtDate(inv.storno_of_date, "de")}.`)
+      : lang === "en"
+        ? `Payable without deduction by ${fmtDate(inv.due_date, "en")}.`
+        : `Zahlbar ohne Abzug bis ${fmtDate(inv.due_date, "de")}.`;
 
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +
       '<rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:qdt="urn:un:unece:uncefact:data:standard:QualifiedDataType:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">' +
       `<rsm:ExchangedDocumentContext><ram:GuidelineSpecifiedDocumentContextParameter><ram:ID>${PROFILE}</ram:ID></ram:GuidelineSpecifiedDocumentContextParameter></rsm:ExchangedDocumentContext>` +
-      "<rsm:ExchangedDocument>" + tag("ram:ID", inv.number) + "<ram:TypeCode>380</ram:TypeCode>" +
+      "<rsm:ExchangedDocument>" + tag("ram:ID", inv.number) + `<ram:TypeCode>${storno ? "381" : "380"}</ram:TypeCode>` +
       `<ram:IssueDateTime><udt:DateTimeString format="102">${ymd(inv.issue_date)}</udt:DateTimeString></ram:IssueDateTime>` +
       notes.map((n) => "<ram:IncludedNote>" + tag("ram:Content", n.text) + tag("ram:SubjectCode", n.code) + "</ram:IncludedNote>").join("") +
       "</rsm:ExchangedDocument>" +
@@ -212,6 +215,9 @@
       `<ram:GrandTotalAmount>${dec(t.gross)}</ram:GrandTotalAmount>` +
       `<ram:DuePayableAmount>${dec(t.gross)}</ram:DuePayableAmount>` +
       "</ram:SpecifiedTradeSettlementHeaderMonetarySummation>" +
+      (storno ? "<ram:InvoiceReferencedDocument>" + tag("ram:IssuerAssignedID", inv.storno_of_number) +
+        (inv.storno_of_date ? `<ram:FormattedIssueDateTime><qdt:DateTimeString format="102">${ymd(inv.storno_of_date)}</qdt:DateTimeString></ram:FormattedIssueDateTime>` : "") +
+        "</ram:InvoiceReferencedDocument>" : "") +
       "</ram:ApplicableHeaderTradeSettlement>" +
       "</rsm:SupplyChainTradeTransaction>" +
       "</rsm:CrossIndustryInvoice>";
