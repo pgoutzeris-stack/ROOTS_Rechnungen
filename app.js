@@ -2558,35 +2558,47 @@
     if (num === auto) delete state.edit.number_manual;
     else state.edit.number_manual = num;
     renderEditor(); commitHistory(); scheduleAutosave();
-    if (state.edit.number_manual) suggestSequenceFix(state.edit.template);
+    if (state.edit.number_manual) suggestSequenceFix(state.edit.number_manual);
   }
 
-  /** Wird bei einer Vorlage immer wieder von Hand nummeriert, einmal anbieten, den Kreis anzupassen. */
+  /**
+   * Ab der zweiten Nummer von Hand anbieten, den gemeinsamen Nummernkreis ab
+   * dieser Nummer fortzusetzen. "Nicht mehr fragen" gilt fuer alle.
+   */
   const seqHintAsked = new Set();
-  async function suggestSequenceFix(tplId) {
-    if (!tplId || seqHintAsked.has(tplId)) return;
-    const off = state.settings?.seller?.seq_hint_off || {};
-    if (off[tplId]) return;
-    const earlier = state.invoices.filter((i) => i.number && i.number_manual && i.template === tplId).length;
-    if (earlier < 1) return;
-    seqHintAsked.add(tplId);
-    const tpl = state.templates.find((t) => t.id === tplId);
+  async function suggestSequenceFix(num) {
+    const q = sequenceOf(state.edit);
+    if (!q || !num || seqHintAsked.has(num)) return;
+    const seller0 = state.settings?.seller || {};
+    if (seller0.seq_hint_off === true) return;
+    const prefix = String(q.prefix || "");
+    if (!num.startsWith(prefix) || !/^\d+$/.test(num.slice(prefix.length))) return;
+    // Zaehler fuer Nummern von Hand, gemeinsam gespeichert.
+    const count = Number(seller0.manual_number_count || 0) + 1;
+    try { state.settings = (await api("settings_save", { settings: { seller: { ...seller0, manual_number_count: count } } })).settings; } catch (_) { /* nur Zaehler */ }
+    if (count < 2) return;
+    const step = Number(q.step) || 1;
+    const nextVal = Number(num.slice(prefix.length)) + step;
+    if (nextVal <= Number(q.next_number)) return; // Kreis ist schon weiter
+    seqHintAsked.add(num);
+    const nextNum = prefix + String(nextVal).padStart(num.length - prefix.length, "0");
     const act = await showDialog({
       icon: "fa-hashtag",
-      title: "Nummernkreis anpassen?",
-      html: `<p>Bei der Vorlage „${esc(tpl?.name || "")}“ wurde die Nummer schon ${earlier + 1}-mal von Hand geändert.</p>`,
-      actions: [{ label: "Nicht mehr fragen", value: "off" }, { label: "Später", value: null }, { label: "Zu den Nummernkreisen", value: "go", primary: true }],
+      title: "Nummernkreis fortsetzen?",
+      html: `<p>Nummernkreis „${esc(q.name)}“ ab <b class="mono">${esc(num)}</b> fortsetzen? Die nächste Nummer wäre <b class="mono">${esc(nextNum)}</b>.</p>`,
+      actions: [{ label: "Nicht mehr fragen", value: "off" }, { label: "Nein", value: null }, { label: "Fortsetzen", value: "go", primary: true }],
     });
     if (act === "go") {
-      if (!(await leaveEditor())) return;
-      state.view = "settings"; render();
-      document.getElementById("seq-settings")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      try {
+        await api("sequence_save", { id: q.id, name: q.name, prefix, next: nextVal, step });
+        await api("sequence_confirm", { id: q.id });
+        await refreshSequences();
+        toast(`Nächste Nummer: ${nextNum}`, "ok");
+      } catch (e) { toast(e.message, "err"); }
     }
     if (act === "off") {
       try {
-        const seller = { ...(state.settings?.seller || {}) };
-        seller.seq_hint_off = { ...(seller.seq_hint_off || {}), [tplId]: true };
-        state.settings = (await api("settings_save", { settings: { seller } })).settings;
+        state.settings = (await api("settings_save", { settings: { seller: { ...(state.settings?.seller || {}), seq_hint_off: true } } })).settings;
       } catch (e) { toast(e.message, "err"); }
     }
   }
