@@ -207,7 +207,7 @@
   const safeName = (s, max = 40) => String(s || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, max);
   /** Einheitlicher Dateiname, unabhaengig von der Rechnungssprache. */
   // Einheitlich fuer alle Sprachen: Nummer vorn, damit die Dateien in Vergaberreihenfolge stehen.
-  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice_{kunde}_{projekt}";
+  const FILE_PATTERN_DEFAULT = "{nummer}_Invoice {kunde}_{projekt}";
   const filePattern = () => String(state.settings?.seller?.file_pattern || "").trim() || FILE_PATTERN_DEFAULT;
   /** Dateiname nach dem Namensschema aus den Einstellungen; leere Teile fallen weg. */
   /** Leistungszeitraum kurz: ganzes Quartal Q2_2025, ein Monat 2025-06, sonst von_bis. */
@@ -223,6 +223,8 @@
     if (y1 === y2 && d1 === 1 && fullEnd && m1 === 1 && m2 === 12) return String(y1);
     return `${ps.slice(0, 7)}_${pe.slice(0, 7)}`;
   };
+  // Lesbare Teile: Leerzeichen, Bindestriche, Klammern bleiben, nur fuer Dateinamen verbotene Zeichen fallen weg.
+  const keepName = (s, max) => String(s || "").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max).trim();
   const fileBase = (number, customer, project, pattern, meta) => {
     // Kunde: Anzeigename aus der Kundenliste (Danone statt DANONE SA); eigenes Schema des Kunden geht vor.
     const kunde = state.customers.find((c) => c.name === customer || c.data?.display_name === customer);
@@ -235,14 +237,16 @@
     const [y, m] = dt.split("-");
     const qSrc = /^\d{4}-\d{2}/.test(String(meta.period_start || "")) ? String(meta.period_start) : dt;
     const teile = {
-      nummer: String(number || "").replace(/[^\p{L}\p{N}-]+/gu, "_").replace(/^_|_$/g, "").slice(0, 40), kunde: safeName(kunde?.data?.display_name || customer, 40),
-      kunde_voll: safeName(kunde?.name || customer, 60), projekt: safeName(project, 80),
+      nummer: String(number || "").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "").slice(0, 40), kunde: keepName(kunde?.data?.display_name || customer, 40),
+      kunde_voll: keepName(kunde?.name || customer, 60), projekt: keepName(project, 100),
       jahr: y, jahr_kurz: y.slice(2), monat: m, quartal: meta.quarter || "Q" + Math.ceil(Number(qSrc.slice(5, 7)) / 3),
       datum: dt, datum_kompakt: dt.replace(/-/g, ""),
       zeitraum: periodTag(String(meta.period_start || ""), String(meta.period_end || "")),
     };
     return pattern.replace(/\{([a-z_]+)\}/g, (_, k) => teile[k] || "")
-      .replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/_+/g, "_").replace(/^[_.-]+|[_.-]+$/g, "").slice(0, 180) || safeName(number) || "Rechnung";
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ")
+      .replace(/ *_[ _]*/g, "_").replace(/ {2,}/g, " ").replace(/([.-])\1+/g, "$1")
+      .replace(/^[_.\- ]+|[_.\- ]+$/g, "").slice(0, 180).trim() || safeName(number) || "Rechnung";
   };
 
   // Baukasten fuer das Namensschema: Bausteine per Drag and Drop anordnen.
@@ -252,23 +256,27 @@
     ["jahr", "Jahr", "fa-calendar-days"], ["jahr_kurz", "Jahr kurz", "fa-calendar-days"], ["monat", "Monat", "fa-calendar-week"], ["quartal", "Quartal", "fa-chart-pie"],
   ];
   const PB_TEXTS = ["Invoice", "Rechnung", "ROOTS"];
-  const PB_SEPS = [["_", "Unterstrich _"], ["-", "Bindestrich -"], [".", "Punkt ."]];
+  const PB_SEPS = [["_", "Unterstrich"], [" ", "Leerzeichen"], ["-", "Bindestrich"], [".", "Punkt"]];
+  const sepShow = (v) => (v === " " ? "␣" : v);
+  // Jeder Baustein traegt den Trenner zu seinem Nachfolger (g), so sind gemischte Trenner moeglich.
   const pbParse = (pattern) => {
-    const sep = (String(pattern).replace(/\{[a-z_]+\}/g, "").match(/[_.-]/) || ["_"])[0];
     const parts = [];
-    String(pattern).replace(/\{([a-z_]+)\}|[^{}]+/g, (m, v) => {
+    String(pattern).replace(/\{([a-z_]+)\}|[_.\- ]+|[^{}_.\- ]+/g, (m, v) => {
       if (v) parts.push({ k: "var", v });
-      else m.split(/[_.\- ]+/).filter(Boolean).forEach((t) => parts.push({ k: "txt", v: t }));
+      else if (/^[_.\- ]+$/.test(m)) { if (parts.length) parts[parts.length - 1].g = m.includes("_") ? "_" : m[0]; }
+      else parts.push({ k: "txt", v: m });
       return "";
     });
+    const gs = parts.slice(0, -1).map((p) => p.g || "_");
+    const sep = gs.length ? gs.sort((x, y) => gs.filter((g) => g === y).length - gs.filter((g) => g === x).length)[0] : "_";
     return { sep, parts };
   };
-  const pbSerialize = (sep, parts) => parts.map((p) => (p.k === "var" ? `{${p.v}}` : p.v)).join(sep);
+  const pbSerialize = (sep, parts) => parts.map((p, i) => (p.k === "var" ? `{${p.v}}` : p.v) + (i < parts.length - 1 ? (p.g ?? sep) : "")).join("");
   const pbChip = (p, i) => {
     const t = PB_TOKENS.find((x) => x[0] === p.v);
-    return p.k === "var"
+    return (i > 0 ? `<button type="button" class="pb-gap" data-gap="${i - 1}" title="Trenner wechseln">${esc(sepShow(p._gPrev))}</button>` : "") + (p.k === "var"
       ? `<span class="pb-chip" data-i="${i}"><i class="fa-solid ${t ? t[2] : "fa-cube"}"></i>${esc(t ? t[1] : p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`
-      : `<span class="pb-chip txt" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`;
+      : `<span class="pb-chip txt" data-i="${i}" title="Doppelklick zum Bearbeiten">${esc(p.v)}<button type="button" class="pb-x" data-i="${i}" aria-label="Entfernen"><i class="fa-solid fa-xmark"></i></button></span>`);
   };
   /** Baukasten-HTML; value leer und fallback gesetzt = Standard wird geerbt. */
   /** Wirksames Namensschema fuer einen Kunden. */
@@ -307,15 +315,15 @@
     const chip = ([v, l, ic]) => `<span class="pb-chip pal" data-add="var:${v}"><i class="fa-solid ${ic}"></i>${esc(l)}</span>`;
     const group = (label, html) => `<div class="pb-grp"><span class="pb-glabel">${label}</span><div class="pb-gchips">${html}</div></div>`;
     const DATE = ["datum", "datum_kompakt", "jahr", "jahr_kurz", "monat", "quartal", "zeitraum"];
-    return `<div class="pb" data-fallback="${esc(fallback)}" data-customer="${esc(customer)}">
+    return `<div class="pb locked" data-fallback="${esc(fallback)}" data-customer="${esc(customer)}">
       <input type="hidden" name="${esc(name)}" value="${esc(value)}">
       <div class="pb-zone"></div>
-      <div class="pb-prev mono"></div>
+      <div class="pb-row"><span class="pb-prev mono"></span><button type="button" class="btn-ghost sm pb-unlock"><i class="fa-solid fa-lock"></i> Ändern</button></div>
       <div class="pb-pal">
         ${group("Angaben", PB_TOKENS.filter((t) => !DATE.includes(t[0])).map(chip).join(""))}
         ${group("Datum", PB_TOKENS.filter((t) => DATE.includes(t[0])).map(chip).join(""))}
         ${group("Text", PB_TEXTS.map((t) => `<span class="pb-chip pal txt" data-add="txt:${esc(t)}">${esc(t)}</span>`).join("") + `<button type="button" class="pb-chip pal txt" data-add="txt:">+ Eigener Text</button>`)}
-        <div class="pb-grp"><span class="pb-glabel">Trenner</span><div class="pb-seg" role="radiogroup">${PB_SEPS.map(([v, l]) => `<button type="button" class="pb-sepbtn" data-sep="${esc(v)}" title="${esc(l)}">${esc(v)}</button>`).join("")}</div>
+        <div class="pb-grp"><span class="pb-glabel">Trenner</span><div class="pb-seg" role="radiogroup">${PB_SEPS.map(([v, l]) => `<button type="button" class="pb-sepbtn" data-sep="${esc(v)}" title="${esc(l)} für alle">${esc(sepShow(v))}</button>`).join("")}</div>
           ${fallback ? `<button type="button" class="link-btn pb-reset">Standard verwenden</button>` : ""}</div>
       </div>
     </div>`;
@@ -326,6 +334,7 @@
     const { sep, parts } = pbParse(own || pb.dataset.fallback || FILE_PATTERN_DEFAULT);
     pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.classList.toggle("on", b.dataset.sep === sep));
     pb.classList.toggle("inherit", !own && !!pb.dataset.fallback);
+    parts.forEach((p, i) => { if (i > 0) p._gPrev = parts[i - 1].g ?? sep; });
     pb.querySelector(".pb-zone").innerHTML = parts.map(pbChip).join("") || `<span class="cell-sub">Bausteine hierher ziehen</span>`;
     // Vorschau mit festen Beispielwerten, nicht mit echten Rechnungen; beim Kunden mit dessen Namen.
     const cn = pb.dataset.customer;
@@ -371,7 +380,7 @@
       const v = keep ? safeName(inp.value, 30) : "";
       if (!v) return pbRender(pb);
       pbUpdate(pb, (c) => {
-        if (index != null) c.parts[index] = { k: "txt", v };
+        if (index != null) c.parts[index] = { ...c.parts[index], k: "txt", v };
         else c.parts.splice(insertAt != null ? insertAt : c.parts.length, 0, { k: "txt", v });
         return c;
       });
@@ -403,6 +412,7 @@
         return at;
       };
       pb.addEventListener("pointerdown", (e) => {
+        if (pb.classList.contains("locked")) return;
         if (e.button > 0 || e.target.closest(".pb-x, .pb-edit")) return;
         const c = e.target.closest(".pb-chip");
         if (!c || !c.dataset.add && c.dataset.i == null) return;
@@ -458,6 +468,19 @@
       document.addEventListener("pointercancel", onUp);
       pb.addEventListener("click", (e) => {
         if (pb.dataset.justDragged) return;
+        if (e.target.closest(".pb-unlock")) {
+          const forCust = pb.dataset.customer;
+          confirmDialog("Dateinamenschema ändern?", forCust ? `Gilt für alle künftigen Dateien von ${forCust}.` : "Gilt für alle künftigen Dateien aller Kunden ohne eigenes Schema.", "Ändern").then((ok) => {
+            if (ok) pb.classList.remove("locked");
+          });
+          return;
+        }
+        if (pb.classList.contains("locked")) return;
+        const gap = e.target.closest(".pb-gap");
+        if (gap) {
+          const order = PB_SEPS.map((x) => x[0]);
+          return pbUpdate(pb, (cur) => { const p = cur.parts[Number(gap.dataset.gap)]; if (p) p.g = order[(order.indexOf(p.g ?? cur.sep) + 1) % order.length]; return cur; });
+        }
         const x = e.target.closest(".pb-x");
         if (x) return pbUpdate(pb, (cur) => { cur.parts.splice(Number(x.dataset.i), 1); return cur; });
         const a = e.target.closest("[data-add]");
@@ -470,10 +493,11 @@
         if (e.target.closest(".pb-reset")) { pb.querySelector("input[type=hidden]").value = ""; pbRender(pb); }
       });
       pb.addEventListener("dblclick", (e) => {
+        if (pb.classList.contains("locked")) return;
         const c = e.target.closest(".pb-zone .pb-chip.txt");
         if (c) pbEditText(pb, Number(c.dataset.i), null);
       });
-      pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.addEventListener("click", () => pbUpdate(pb, (cur) => ({ ...cur, sep: b.dataset.sep }))));
+      pb.querySelectorAll(".pb-sepbtn").forEach((b) => b.addEventListener("click", () => pbUpdate(pb, (cur) => { cur.parts.forEach((p) => { p.g = b.dataset.sep; }); return { ...cur, sep: b.dataset.sep }; })));
     });
   }
 

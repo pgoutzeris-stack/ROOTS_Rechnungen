@@ -22,16 +22,16 @@
 <script src="vendor/SaxonJS2.rt.js"></script>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf.worker.min.js"></script>
-<script src="ui.js?v=64"></script>
-<script src="richtext.js?v=64"></script>
-<script src="einvoice.js?v=64"></script>
-<script src="layout.js?v=64"></script>
-<script src="designer.js?v=64"></script>
-<script src="pdf.js?v=64"></script>
-<script src="schematron.js?v=64"></script>
-<script src="facturx.js?v=64"></script>
-<script src="annex.js?v=64"></script>
-<script src="app.js?v=64"></script>
+<script src="ui.js?v=65"></script>
+<script src="richtext.js?v=65"></script>
+<script src="einvoice.js?v=65"></script>
+<script src="layout.js?v=65"></script>
+<script src="designer.js?v=65"></script>
+<script src="pdf.js?v=65"></script>
+<script src="schematron.js?v=65"></script>
+<script src="facturx.js?v=65"></script>
+<script src="annex.js?v=65"></script>
+<script src="app.js?v=65"></script>
 <style>
 @import url('https://fonts.cdnfonts.com/css/circular-std');
 :root{
@@ -402,6 +402,15 @@ body.pb-dragging,body.pb-dragging *{cursor:grabbing!important;user-select:none!i
 .pb-seg{display:inline-flex;gap:2px;padding:2px;border-radius:999px;background:var(--surface);width:max-content}
 .pb-sepbtn{width:28px;height:24px;border:0;border-radius:999px;background:none;font:600 .85rem/1 ui-monospace,monospace;color:var(--muted,var(--text));cursor:pointer}
 .pb-sepbtn.on{background:var(--card,#fff);color:var(--brand);box-shadow:0 1px 3px rgba(15,23,42,.12)}
+.pb-gap{height:28px;min-width:18px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--muted,var(--text));font:600 .85rem/1 ui-monospace,monospace;cursor:pointer;align-self:center}
+.pb-gap:hover{background:var(--card,#fff);color:var(--brand)}
+.pb-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pb-unlock{display:none}
+.pb.locked .pb-unlock{display:inline-flex}
+.pb.locked .pb-pal,.pb.locked .pb-x{display:none}
+.pb.locked .pb-zone{pointer-events:none}
+.pb.locked .pb-chip{cursor:default}
+#confirm-dialog{z-index:100001}
 .pb-reset{grid-column:2;justify-self:start;font-size:.78rem}
 #result-body p{color:var(--muted);font-size:.92rem;margin:0 0 1rem}
 #result-body .std-tags{justify-content:center}
