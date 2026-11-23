@@ -172,10 +172,11 @@
     });
 
     y -= 18;
-    const AX = ML + 92;
+    // Betraege rechtsbuendig davor, Texte bei ML + 120 wie die Werte im Kopf (Rechnungsnummer usw.).
+    const AX = ML + 104;
     (inv.lines || []).forEach((l, i) => {
       right(t.lines[i] ? money(t.lines[i]) : "- €", AX, y);
-      const lines = RT.layout(RT.parse(RT.fromLine(l)), { R, B }, 9.5, CW - 110);
+      const lines = RT.layout(RT.parse(RT.fromLine(l)), { R, B }, 9.5, CW - 120);
       if (!lines.length) lines.push({ segs: [] });
       lines.forEach((ln, j) => RT.drawLine(p, ln, AX + 16, y - j * 12.5, 9.5, INK, { R, B }, PDFLib));
       mark(`lines.${i}`, ML, y, W - MR, y - (lines.length - 1) * 12.5);
