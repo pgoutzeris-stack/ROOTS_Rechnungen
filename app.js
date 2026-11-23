@@ -1501,7 +1501,7 @@
   const MAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
   const MAIL_TEXT_DEFAULT = {
     en: "Dear all,\n\nPlease find attached our invoice for {zeitraum}.\n\nIf you had any questions, please just let me know.\n\nMany thanks for trusting ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n",
-    de: "Guten Tag,\n\nanbei erhalten Sie unsere Rechnung für {zeitraum}.\n\nVielen Dank für Ihr Vertrauen in ROOTS Brand Strategy Consultants!\n\nBeste Grüße / Best regards,\n",
+    de: "Guten Tag,\n\nanbei erhalten Sie unsere Rechnung für {zeitraum}.\n\nVielen Dank für Ihr Vertrauen in ROOTS Brand Strategy Consultants!\n\nBeste Grüße,\n",
   };
   function mailText(lang) {
     const t = state.settings?.seller?.mail_texts?.[lang];
