@@ -1519,11 +1519,11 @@
     const data = d.data || {};
     const en = data.lang === "en";
     const cust = state.customers.find((c) => c.id === data.customer_id) || state.customers.find((c) => c.name === d.customer_name);
-    const short = cust?.data?.display_name || d.customer_name || "";
     const ref = /^\d{4}-\d{2}/.test(data.period_end || "") ? data.period_end : d.issue_date;
     const m = /^(\d{4})-(\d{2})/.exec(ref || "");
     const period = m ? `${MONTHS[en ? "en" : "de"][Number(m[2]) - 1]} ${m[1]}` : "";
-    const subject = [String(d.number || "").replace(/-/g, "_"), `${en ? "Invoice" : "Rechnung"} ${short}`.trim(), data.project].filter(Boolean).join("_");
+    // Betreff = Dateiname (wie Richard verschickt), damit beides einheitlich ist.
+    const subject = fileBase(d.number, d.customer_name, data.project, "", data);
     const tpl = mailText(en ? "en" : "de");
     const body = tpl.replace(/ ?\{zeitraum\}/gi, period ? ` ${period}` : "").replace(/ ?\{period\}/gi, period ? ` ${period}` : "");
     return { to: cust?.data?.email || data.buyer?.email || "", subject, body, cust };
