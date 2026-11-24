@@ -262,7 +262,7 @@
     if (!isDate(inv.issue_date)) err("BR-03", "issue_date", "Rechnungsdatum fehlt.");
     if (!isDate(inv.period_start) || !isDate(inv.period_end)) err("§ 14 UStG", "period", "Leistungszeitraum fehlt.");
     else if (inv.period_end < inv.period_start) err("BR-29", "period", "Leistungszeitraum endet vor dem Beginn.");
-    if (!isDate(inv.due_date)) err("BR-CO-25", "due_date", "Fälligkeitsdatum fehlt.");
+    if (!isDate(inv.due_date)) err("BR-CO-25", "due_date", "Fälligkeitsdatum fehlt. Für E-Rechnungen Pflicht, auch wenn es nicht im PDF steht.");
     else if (isDate(inv.issue_date) && inv.due_date < inv.issue_date) warn("BR-CO-25", "due_date", "Fälligkeit liegt vor dem Rechnungsdatum.");
 
     if (!String(b.name || "").trim()) err("BR-07", "buyer.name", "Name des Kunden fehlt.");
