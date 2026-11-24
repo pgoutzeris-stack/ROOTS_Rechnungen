@@ -1587,14 +1587,16 @@
   }
 
   // Signatur je Absender, Aufbau wie Richards Outlook-Signatur (Aptos 11pt, Logo, Kontakt, Links).
-  const SIG_LOGO_URL = "https://pgoutzeris-stack.github.io/ROOTS_Intranet/assets/signature/ROOTS_regular_blk.png";
+  // Signatur je Absender: Markup 1:1 aus Richards Outlook-Signatur (Outlook Desktop, Aptos 11pt,
+  // quadratisches ROOTS-Logo 1in, Trennzeilen als durchgestrichene Leerzeichen).
+  const SIG_LOGO_URL = "https://pgoutzeris-stack.github.io/ROOTS_Rechnungen/assets/signatur-logo.png";
   const SIG_COMPANY = "ROOTS Brand Strategy Consultants GmbH";
-  const SIG_FONT = "font-family:Aptos,Arial,Helvetica,sans-serif;font-size:11pt;color:#000000";
+  const SIG_FONT = "font-family:Aptos,Arial,Helvetica,sans-serif;font-size:11pt;color:black";
   function mySignatureData() {
     return (state.settings?.seller?.mail_signatures || {})[String(state.user?.email || "").toLowerCase()] || null;
   }
   function mailHtml(body) {
-    return String(body).replace(/\s+$/, "").split(/\r?\n/).map((l) => `<p style="margin:0;${SIG_FONT}">${l.trim() ? esc(l) : "&nbsp;"}</p>`).join("");
+    return String(body).replace(/\s+$/, "").split(/\r?\n/).map((l) => `<p class="MsoNormal" style="margin:0cm"><span style="${SIG_FONT}">${l.trim() ? esc(l) : "&nbsp;"}</span></p>`).join("");
   }
   function signature(email) {
     const d = mySignatureData();
@@ -1602,25 +1604,28 @@
     const mail = String(email || state.user?.email || "").trim();
     const phone = String(d.phone || "").trim();
     const li = String(d.linkedin || "").trim();
-    const line = (x) => `<p style="margin:0;${SIG_FONT}">${x}</p>`;
-    const a = (href, t) => `<a href="${esc(href)}" style="color:#000000"><u>${esc(t)}</u></a>`;
+    const P = (inner, extra = "") => `<p class="MsoNormal" style="margin:0cm${extra};font-family:Aptos,sans-serif;font-size:10pt"><span style="font-size:11pt;color:black">${inner}</span></p>`;
+    const rule = P(`<s>${"&nbsp;".repeat(76)}</s>`);
+    const a = (href, t) => `<a href="${esc(href)}" style="color:black"><u>${esc(t)}</u></a>`;
     const html = (logoSrc) => [
-      line("&nbsp;"),
-      line(`<b>${esc(d.name)}</b>`),
-      line(esc(SIG_COMPANY)),
-      line("&nbsp;"),
-      `<p style="margin:0"><img src="${logoSrc}" width="150" height="33" alt="ROOTS" style="display:block;width:150px;height:33px;border:0"></p>`,
-      line("&nbsp;"),
-      phone ? line(`<a href="tel:${esc(phone.replace(/[^\d+]/g, ""))}" style="color:#000000">${esc(phone)}</a>`) : "",
-      mail ? line(a("mailto:" + mail, mail)) : "",
-      line(a("https://www.roots-consultants.com/", "Website") + (li ? "&nbsp;I " + a(li, "LinkedIn") : "")),
+      P("<b>&nbsp;</b>", " 1pt 1pt 0cm"),
+      P(`<b>${esc(d.name)}</b>`, " 1pt 1pt 0cm"),
+      P(esc(SIG_COMPANY)),
+      P("&nbsp;"),
+      P(`<img src="${logoSrc}" alt="ROOTS" width="96" height="92" style="width:1in;height:.9687in">`),
+      `<p class="MsoNormal" style="margin:0cm;font-family:Aptos,sans-serif;font-size:10pt"><span style="font-size:5.5pt;color:black">&nbsp;</span></p>`,
+      rule,
+      phone ? P(`<a href="tel:${esc(phone.replace(/[^\d+]/g, ""))}">${esc(phone)}</a>`) : "",
+      mail ? P(a("mailto:" + mail, mail)) : "",
+      P(a("https://www.roots-consultants.com/", "Website") + (li ? "&nbsp;I " + a(li, "LinkedIn") : "")),
+      rule,
     ].join("");
     const text = [d.name, SIG_COMPANY, "", phone, mail, "Website: https://www.roots-consultants.com/" + (li ? "\nLinkedIn: " + li : "")].filter((x, i) => x || i === 2).join("\n");
     return { html, text };
   }
   async function signatureLogo() {
     try {
-      const r = await fetch(SIG_LOGO_URL, { cache: "force-cache" });
+      const r = await fetch("assets/signatur-logo.png", { cache: "force-cache" }).catch(() => fetch(SIG_LOGO_URL));
       return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
     } catch { return null; }
   }
