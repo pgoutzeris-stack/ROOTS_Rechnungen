@@ -1513,8 +1513,8 @@
 
   const MAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
   const MAIL_TEXT_DEFAULT = {
-    en: "Dear all,\n\nPlease find attached our invoice for {zeitraum}.\n\nIf you had any questions, please just let me know.\n\nMany thanks for trusting ROOTS Brand Strategy Consultants!\n\nBest regards,\n",
-    de: "Guten Tag,\n\nanbei erhalten Sie unsere Rechnung für {zeitraum}.\n\nVielen Dank für Ihr Vertrauen in ROOTS Brand Strategy Consultants!\n\nBeste Grüße,\n",
+    en: "Dear Sir or Madam,\n\nPlease find attached our {dateiname}.\n\nIf you have any questions, please do not hesitate to contact us.\n\nThank you for your trust, and we look forward to continuing our collaboration!\n\nBest regards,\n",
+    de: "Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie unsere {dateiname}.\n\nFür Rückfragen stehen wir jederzeit zur Verfügung.\n\nWir bedanken uns für das entgegengebrachte Vertrauen und freuen uns auf die weitere Zusammenarbeit!\n\nBeste Grüße / Best regards,\n",
   };
   function mailText(lang) {
     const t = state.settings?.seller?.mail_texts?.[lang];
@@ -1538,7 +1538,7 @@
     // Betreff = Dateiname (wie Richard verschickt), damit beides einheitlich ist.
     const subject = fileBase(d.number, d.customer_name, data.project, "", data);
     const tpl = mailText(en ? "en" : "de");
-    const body = tpl.replace(/ ?\{zeitraum\}/gi, period ? ` ${period}` : "").replace(/ ?\{period\}/gi, period ? ` ${period}` : "");
+    const body = tpl.replace(/\{dateiname\}|\{filename\}/gi, subject).replace(/ ?\{zeitraum\}/gi, period ? ` ${period}` : "").replace(/ ?\{period\}/gi, period ? ` ${period}` : "");
     return { to: cust?.data?.email || data.buyer?.email || "", subject, body, cust };
   }
 
@@ -1607,7 +1607,11 @@
       </div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail herunterladen", value: "app", primary: true }],
     });
-    wireQuarter("mail-file", makeName, (n) => { baseName = n; });
+    wireQuarter("mail-file", makeName, (n) => {
+      // Dateiname steht auch in Betreff und Text: dort mitziehen.
+      for (const id of ["mail-subject", "mail-body"]) { const el = document.getElementById(id); if (el && baseName) el.value = el.value.split(baseName).join(n); }
+      baseName = n;
+    });
     const act = await shown;
     if (!act) return;
     const val = (sel) => String(document.getElementById(sel)?.value || "").trim();
@@ -2377,7 +2381,7 @@
           <label class="field wide"><span class="flabel">Mailtext Deutsch</span><textarea name="mail_text_de" rows="8">${esc(mailText("de"))}</textarea></label>
           <label class="field wide"><span class="flabel">Mailtext Englisch</span><textarea name="mail_text_en" rows="8">${esc(mailText("en"))}</textarea></label>
         </div>
-        <p class="cell-sub">{zeitraum} = Leistungsmonat · Empfänger je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
+        <p class="cell-sub">{dateiname} = Dateiname · {zeitraum} = Leistungsmonat · Empfänger je Kunde unter <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
         <div class="card-save"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Speichern</button></div>
       </section>`;
     wirePatternBuilders($("#settings-form"));
