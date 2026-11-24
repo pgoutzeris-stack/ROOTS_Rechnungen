@@ -1548,32 +1548,81 @@
     return btoa(bin).replace(/.{76}/g, "$&\r\n");
   }
   const encWord = (t) => /^[\x20-\x7e]*$/.test(t) ? t : `=?UTF-8?B?${btoa(unescape(encodeURIComponent(t)))}?=`;
-  /** Entwurf als .eml; X-Unsent oeffnet ihn in Outlook als neue Nachricht. */
-  function buildEml({ from, to, subject, body, pdf, fileName }) {
-    const bnd = "----=_roots_" + Math.random().toString(36).slice(2);
-    const text = new TextEncoder().encode(body.replace(/\r?\n/g, "\r\n"));
+  /** Entwurf als .eml; X-Unsent oeffnet ihn in Outlook als neue Nachricht.
+   *  Mit Signatur: Text + HTML (multipart/alternative), Logo als Inline-Bild (cid). */
+  function buildEml({ from, to, subject, body, pdf, fileName, sig, logo }) {
+    const rnd = () => "----=_roots_" + Math.random().toString(36).slice(2);
+    const mixed = rnd(), rel = rnd(), alt = rnd();
+    const plain = sig ? `${body.replace(/\s+$/, "")}\n\n${sig.text}\n` : body;
+    const part = (type, data) => [`Content-Type: ${type}`, "Content-Transfer-Encoding: base64", "", b64(new TextEncoder().encode(data.replace(/\r?\n/g, "\r\n")))];
+    let content;
+    if (sig) {
+      const html = `<html><head><meta charset="utf-8"></head><body>${mailHtml(body)}${sig.html(logo ? "cid:roots-logo" : SIG_LOGO_URL)}</body></html>`;
+      const altPart = [`Content-Type: multipart/alternative; boundary="${alt}"`, "", `--${alt}`, ...part("text/plain; charset=UTF-8", plain), `--${alt}`, ...part("text/html; charset=UTF-8", html), `--${alt}--`];
+      content = logo
+        ? [`Content-Type: multipart/related; boundary="${rel}"`, "", `--${rel}`, ...altPart, `--${rel}`, "Content-Type: image/png", "Content-Transfer-Encoding: base64", "Content-ID: <roots-logo>", 'Content-Disposition: inline; filename="roots-logo.png"', "", b64(logo), `--${rel}--`]
+        : altPart;
+    } else {
+      content = part("text/plain; charset=UTF-8", plain);
+    }
     return [
       "X-Unsent: 1",
       from ? `From: ${from}` : "",
       `To: ${to}`,
       `Subject: ${encWord(subject)}`,
       "MIME-Version: 1.0",
-      `Content-Type: multipart/mixed; boundary="${bnd}"`,
+      `Content-Type: multipart/mixed; boundary="${mixed}"`,
       "",
-      `--${bnd}`,
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      b64(text),
-      `--${bnd}`,
+      `--${mixed}`,
+      ...content,
+      `--${mixed}`,
       `Content-Type: application/pdf; name="${fileName}"`,
       "Content-Transfer-Encoding: base64",
       `Content-Disposition: attachment; filename="${fileName}"`,
       "",
       b64(pdf),
-      `--${bnd}--`,
+      `--${mixed}--`,
       "",
     ].filter((l, i) => !(i === 1 && l === "")).join("\r\n");
+  }
+
+  // Signatur je Absender, Aufbau wie Richards Outlook-Signatur (Aptos 11pt, Logo, Kontakt, Links).
+  const SIG_LOGO_URL = "https://pgoutzeris-stack.github.io/ROOTS_Intranet/assets/signature/ROOTS_regular_blk.png";
+  const SIG_COMPANY = "ROOTS Brand Strategy Consultants GmbH";
+  const SIG_FONT = "font-family:Aptos,Arial,Helvetica,sans-serif;font-size:11pt;color:#000000";
+  function mySignatureData() {
+    return (state.settings?.seller?.mail_signatures || {})[String(state.user?.email || "").toLowerCase()] || null;
+  }
+  function mailHtml(body) {
+    return String(body).replace(/\s+$/, "").split(/\r?\n/).map((l) => `<p style="margin:0;${SIG_FONT}">${l.trim() ? esc(l) : "&nbsp;"}</p>`).join("");
+  }
+  function signature(email) {
+    const d = mySignatureData();
+    if (!d?.name) return null;
+    const mail = String(email || state.user?.email || "").trim();
+    const phone = String(d.phone || "").trim();
+    const li = String(d.linkedin || "").trim();
+    const line = (x) => `<p style="margin:0;${SIG_FONT}">${x}</p>`;
+    const a = (href, t) => `<a href="${esc(href)}" style="color:#000000"><u>${esc(t)}</u></a>`;
+    const html = (logoSrc) => [
+      line("&nbsp;"),
+      line(`<b>${esc(d.name)}</b>`),
+      line(esc(SIG_COMPANY)),
+      line("&nbsp;"),
+      `<p style="margin:0"><img src="${logoSrc}" width="150" height="33" alt="ROOTS" style="display:block;width:150px;height:33px;border:0"></p>`,
+      line("&nbsp;"),
+      phone ? line(`<a href="tel:${esc(phone.replace(/[^\d+]/g, ""))}" style="color:#000000">${esc(phone)}</a>`) : "",
+      mail ? line(a("mailto:" + mail, mail)) : "",
+      line(a("https://www.roots-consultants.com/", "Website") + (li ? "&nbsp;I " + a(li, "LinkedIn") : "")),
+    ].join("");
+    const text = [d.name, SIG_COMPANY, "", phone, mail, "Website: https://www.roots-consultants.com/" + (li ? "\nLinkedIn: " + li : "")].filter((x, i) => x || i === 2).join("\n");
+    return { html, text };
+  }
+  async function signatureLogo() {
+    try {
+      const r = await fetch(SIG_LOGO_URL, { cache: "force-cache" });
+      return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+    } catch { return null; }
   }
 
   async function sendInvoice(id) {
@@ -1603,7 +1652,7 @@
         <label class="field"><span class="flabel">Text</span><textarea id="mail-body" rows="9">${esc(draft.body)}</textarea></label>
         ${quarterSelect(d.customer_name, d.data)}
         <label class="field"><span class="flabel"><i class="fa-solid fa-paperclip"></i> Anhang</span><div class="fn-field"><input id="mail-file" class="mono" value="${esc(baseName)}"><span class="fn-ext">.pdf</span></div></label>
-        <p class="cell-sub">Adressen werden gespeichert · <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button> · <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
+        <p class="cell-sub">${mySignatureData()?.name ? `Signatur: ${esc(mySignatureData().name)} · ` : "Ohne Signatur · "}Adressen werden gespeichert · <button type="button" class="link-btn nav-tab" data-view="settings" data-scroll="mail-settings">Einstellungen</button> · <button type="button" class="link-btn nav-tab" data-view="customers">Kunden</button></p>
       </div>`,
       actions: [{ label: "Abbrechen", value: null }, { label: "Outlook im Browser", value: "web" }, { label: "E-Mail herunterladen", value: "app", primary: true }],
     });
@@ -1626,7 +1675,9 @@
     fileName = chosen;
 
     if (act === "web") return openOutlookWeb(mail, pdf, fileName);
-    const eml = new TextEncoder().encode(buildEml({ ...mail, to: tos.join(", "), pdf, fileName }));
+    const sig = signature(mail.from || state.user?.email);
+    const logo = sig ? await signatureLogo() : null;
+    const eml = new TextEncoder().encode(buildEml({ ...mail, to: tos.join(", "), pdf, fileName, sig, logo }));
     const emlName = fileName.replace(/\.pdf$/i, ".eml");
     const res = await saveEml(eml, emlName);
     if (res.ok) return toast("E-Mail in den Downloads, per Doppelklick in Outlook öffnen");
@@ -1676,6 +1727,8 @@
     if (!go) return;
     await download(pdf, fileName, "application/pdf");
     const link = (body) => "https://outlook.office.com/mail/deeplink/compose?" + new URLSearchParams({ to: mail.to.replace(/;\s*/g, ","), subject: mail.subject, ...(body ? { body } : {}) }).toString().replace(/\+/g, "%20");
+    const sig = signature(mail.from || state.user?.email);
+    if (sig) mail = { ...mail, body: `${mail.body.replace(/\s+$/, "")}\n\n${sig.text}\n` };
     let url = link(mail.body);
     // Das Intranet nimmt Links bis 2048 Zeichen an. Bei langem Text geht er ueber die Zwischenablage.
     if (url.length > 2000) {
@@ -2376,6 +2429,9 @@
         <h3><i class="fa-solid fa-paper-plane"></i> Rechnungsversand</h3>
         <div class="fields">
           <label class="field wide"><span class="flabel">Absender für ${esc(state.user?.email || "dich")}</span><input name="mail_from" type="email" value="${esc(myMailFrom())}" placeholder="${esc(state.user?.email || "name@roots-consultants.com")}"></label>
+          <label class="field"><span class="flabel">Signatur: Name</span><input name="sig_name" value="${esc(mySignatureData()?.name || "")}"></label>
+          <label class="field"><span class="flabel">Signatur: Telefon</span><input name="sig_phone" value="${esc(mySignatureData()?.phone || "")}"></label>
+          <label class="field wide"><span class="flabel">Signatur: LinkedIn</span><input name="sig_linkedin" value="${esc(mySignatureData()?.linkedin || "")}" placeholder="https://www.linkedin.com/in/…"></label>
         </div>
         <div class="fields">
           <label class="field wide"><span class="flabel">Mailtext Deutsch</span><textarea name="mail_text_de" rows="8">${esc(mailText("de"))}</textarea></label>
@@ -2528,6 +2584,10 @@
       const from = String(fd.get("mail_from") || "").trim();
       if (from && !MAIL_RE.test(from)) return toast("Absenderadresse ungültig", "err");
       seller.mail_senders = { ...(seller.mail_senders || {}), [state.user.email.toLowerCase()]: from };
+    }
+    if (state.user?.email && fd.has("sig_name")) {
+      const g = (k) => String(fd.get(k) || "").trim();
+      seller.mail_signatures = { ...(seller.mail_signatures || {}), [state.user.email.toLowerCase()]: { name: g("sig_name"), phone: g("sig_phone"), linkedin: g("sig_linkedin") } };
     }
     if (fd.has("file_pattern")) {
       const pat = String(fd.get("file_pattern") || "").trim();
