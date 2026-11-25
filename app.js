@@ -35,26 +35,61 @@
 
   /** Lesende Anfragen duerfen bei Netz- oder Zeitfehlern wiederholt werden. */
   const SAFE_OPS = new Set(["context", "list", "get", "pdf", "customers", "templates", "sequences", "file_get", "journal", "journal_all", "journal_entry", "verify"]);
-  const TRANSIENT = /Failed to fetch|NetworkError|timeout|Zeitüberschreitung|Zeitlimit|nicht erreichbar|abgelaufen|504|503|502/i;
+  const TRANSIENT = /Failed to fetch|NetworkError|timeout|Zeitüberschreitung|Zeitlimit|zu lange gedauert|nicht angekommen|nicht erreichbar|nicht verfügbar|abgelaufen|Load failed|fetch failed|504|503|502|500/i;
+  const STALE = /veraltet|Identit|Nicht angemeldet|Benutzerbindung|JWT/i;
 
+  /** Bittet das Intranet, die Sitzung neu zu uebergeben, und wartet kurz darauf. */
+  function resyncSession() {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; window.removeEventListener("roots-auth-ready", finish); resolve(); } };
+      window.addEventListener("roots-auth-ready", finish);
+      try { window.parent.postMessage({ type: "roots-auth-request" }, "*"); } catch (_) {}
+      setTimeout(finish, 4000);
+    });
+  }
+
+  /**
+   * Broker-Aufruf mit Selbstheilung:
+   * - lesende Operationen: bis zu 4 Versuche bei Netz- und Zeitfehlern
+   * - schreibende Operationen: Wiederholung nur, wenn die Anfrage nachweislich
+   *   nie im Intranet ankam (BROKER_NO_ACK), damit nichts doppelt gespeichert wird
+   * - veraltete Sitzung: Sitzung neu anfordern, dann einmal wiederholen
+   */
   async function api(op, payload = {}) {
     const request = window.RootsUserBridge?.request;
     if (!request) throw new Error("Die Intranet-Brücke ist nicht geladen.");
-    const tries = SAFE_OPS.has(op) ? 3 : 1;
+    const safe = SAFE_OPS.has(op);
+    const tries = safe ? 4 : 3;
     let last;
+    let resynced = false;
     for (let i = 0; i < tries; i++) {
       try {
-        return await request("rechnungen", { op, ...payload }, 120000);
+        return await request("rechnungen", { op, ...payload }, safe ? 45000 : 120000);
       } catch (e) {
         last = e;
-        if (i === tries - 1 || !TRANSIENT.test(e?.message || "")) break;
+        const msg = e?.message || "";
+        if (STALE.test(msg) && !resynced) {
+          resynced = true;
+          await resyncSession();
+          if (!safe && e?.code !== "BROKER_NO_ACK" && !/veraltet|Identit|Benutzerbindung/i.test(msg)) break;
+          continue;
+        }
+        const retryable = safe ? TRANSIENT.test(msg) : e?.code === "BROKER_NO_ACK";
+        if (i === tries - 1 || !retryable) break;
         await new Promise((r) => setTimeout(r, 800 * (i + 1) * (i + 1)));
       }
     }
-    throw new Error(translate(last?.message || String(last)));
+    console.warn("[rechnungen] Broker-Fehler", op, last);
+    throw new Error(translate(last?.message || String(last), op));
   }
 
-  function translate(raw) {
+  function translate(raw, op = "") {
+    const write = op && !SAFE_OPS.has(op);
+    if (/zu lange gedauert/i.test(raw)) return write
+      ? "Das Intranet antwortet nicht. Bitte Liste neu laden und prüfen, ob die Änderung gespeichert ist."
+      : "Das Intranet antwortet nicht. Mehrere Versuche sind gescheitert.";
+    if (/nicht angekommen/i.test(raw)) return "Das Intranet nimmt keine Anfragen an. Intranet neu laden.";
     if (/Kein Zugriff/i.test(raw)) return "Kein Zugriff auf Rechnungen.";
     if (/duplicate key|rg_invoices_number_key/i.test(raw)) return "Diese Rechnungsnummer ist bereits vergeben.";
     if (/unveraenderlich/i.test(raw)) return "Endgültige Rechnungen sind unveränderlich.";
@@ -3029,6 +3064,20 @@
     $("#cust-form").addEventListener("submit", (e) => { e.preventDefault(); saveCustomer(e.target).catch((err) => toast(err.message, "err")); });
     $("#settings-form").addEventListener("submit", (e) => { e.preventDefault(); saveSettings(e.target).catch((err) => toast(err.message, "err")); });
   }
+
+  /* Kein Fehler bleibt stumm: unbehandelte Fehler loesen die Sperranzeige und
+     erscheinen als Hinweis, statt das Tool im Wartezustand haengen zu lassen. */
+  window.addEventListener("unhandledrejection", (e) => {
+    const msg = e.reason?.message || String(e.reason || "");
+    console.warn("[rechnungen] unbehandelt", e.reason);
+    if (state.busy) setBusy(false);
+    if (msg) toast(translate(msg), "err");
+  });
+  window.addEventListener("error", (e) => {
+    if (!(e instanceof ErrorEvent) || !e.message) return;
+    console.warn("[rechnungen] Laufzeitfehler", e.error || e.message);
+    if (state.busy) setBusy(false);
+  });
 
   /* Kundenlogo nicht ladbar: Monogramm statt leerer Kachel */
   document.addEventListener("error", (e) => {
